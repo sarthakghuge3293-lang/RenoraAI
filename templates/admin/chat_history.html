@@ -1,0 +1,49 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Chat History | Renvora AI{% endblock %}
+{% block page_title %}Chat History Logs{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="card-title">Recent Chat Activity</div>
+    
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Message</th>
+                    <th>Response Snapshot</th>
+                    <th>Collection Used</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td style="white-space: nowrap;">{{ log.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ users.get(log.user_id, 'Unknown') }}</td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ log.message }}">
+                        {{ log.message }}
+                    </td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ log.response }}">
+                        {{ log.response }}
+                    </td>
+                    <td>
+                        {% if log.collection_used == 'renvora_knowledge' %}
+                        <span class="badge badge-primary">Company Knowledge</span>
+                        {% else %}
+                        <span class="badge badge-success">User Document</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5">No chat history found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

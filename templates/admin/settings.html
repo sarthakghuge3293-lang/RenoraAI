@@ -1,0 +1,60 @@
+{% extends "admin/base.html" %}
+
+{% block title %}AI Settings | Renvora AI{% endblock %}
+{% block page_title %}AI Model Settings{% endblock %}
+
+{% block content %}
+<div class="card-panel" style="max-width: 800px;">
+    <div class="card-title">System Configuration</div>
+    
+    <form action="{{ url_for('admin.settings') }}" method="POST">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <!-- LLM Model -->
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #374151;">LLM Model</label>
+                <input type="text" name="llm_model" value="{{ settings.llm_model }}" class="form-control" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #d1d5db;" required>
+            </div>
+            
+            <!-- Embedding Model -->
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #374151;">Embedding Model</label>
+                <input type="text" name="embedding_model" value="{{ settings.embedding_model }}" class="form-control" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #d1d5db;" required>
+            </div>
+            
+            <!-- Chunk Size -->
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #374151;">Chunk Size</label>
+                <input type="number" name="chunk_size" value="{{ settings.chunk_size }}" class="form-control" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #d1d5db;" required>
+            </div>
+            
+            <!-- Chunk Overlap -->
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #374151;">Chunk Overlap</label>
+                <input type="number" name="chunk_overlap" value="{{ settings.chunk_overlap }}" class="form-control" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #d1d5db;" required>
+            </div>
+            
+            <!-- Top K -->
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #374151;">Top-K Retrieval</label>
+                <input type="number" name="top_k" value="{{ settings.top_k }}" class="form-control" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #d1d5db;" required>
+            </div>
+            
+            <!-- Max Upload Size -->
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #374151;">Max Upload Size (MB)</label>
+                <input type="number" name="max_upload_size_mb" value="{{ settings.max_upload_size_mb }}" class="form-control" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #d1d5db;" required>
+            </div>
+            
+            <!-- Supported File Types -->
+            <div style="grid-column: span 2; margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #374151;">Supported File Types (comma separated)</label>
+                <input type="text" name="supported_file_types" value="{{ settings.supported_file_types }}" class="form-control" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #d1d5db;" required>
+            </div>
+        </div>
+        
+        <div style="margin-top: 20px; text-align: right;">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Save Settings</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

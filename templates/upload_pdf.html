@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container mt-5">
+
+<h2>Upload PDF</h2>
+
+<form action="/user/upload" method="POST" enctype="multipart/form-data">
+
+<div class="mb-3">
+
+<input
+type="file"
+class="form-control"
+name="pdf"
+accept=".pdf"
+required>
+
+</div>
+
+<button class="btn btn-primary">
+
+Upload PDF
+
+</button>
+
+</form>
+
+</div>
+
+{% endblock %}

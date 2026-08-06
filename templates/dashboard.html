@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+<style>
+body{
+    background:#0f172a;
+    color:white;
+    overflow:hidden;
+}
+
+.sidebar{
+    width:260px;
+    height:100vh;
+    background:#111827;
+    position:fixed;
+    left:0;
+    top:0;
+    display:flex;
+    flex-direction:column;
+    padding:20px;
+}
+
+.logo{
+    font-size:30px;
+    font-weight:bold;
+    margin-bottom:30px;
+}
+
+.menu a{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    color:white;
+    text-decoration:none;
+    padding:14px;
+    border-radius:12px;
+    margin-bottom:8px;
+    transition:.3s;
+}
+
+.menu a:hover{
+    background:#1f2937;
+}
+
+.logout{
+    margin-top:auto;
+}
+
+.logout a{
+    display:block;
+    text-align:center;
+    background:#ef4444;
+    color:white;
+    padding:14px;
+    border-radius:12px;
+    text-decoration:none;
+}
+
+.main{
+    margin-left:260px;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:40px;
+}
+
+.card-box{
+    width:900px;
+    background:#1e293b;
+    border-radius:25px;
+    padding:50px;
+    text-align:center;
+    box-shadow:0 0 30px rgba(0,0,0,.3);
+}
+
+.card-box h1{
+    font-size:50px;
+    margin-bottom:15px;
+}
+
+.card-box p{
+    color:#cbd5e1;
+    font-size:18px;
+}
+
+.start-btn{
+    margin-top:35px;
+    display:inline-block;
+    background:#10b981;
+    color:white;
+    text-decoration:none;
+    padding:16px 45px;
+    border-radius:15px;
+    font-size:18px;
+}
+
+.stats{
+    display:flex;
+    justify-content:space-between;
+    margin-top:50px;
+}
+
+.stat{
+    width:30%;
+    background:#0f172a;
+    border-radius:18px;
+    padding:25px;
+}
+
+.stat h2{
+    font-size:40px;
+}
+
+.stat span{
+    color:#94a3b8;
+}
+</style>
+
+<div class="sidebar">
+
+    <div class="logo">
+        🤖 Renvora AI
+    </div>
+
+    <div class="menu">
+
+        <a href="/dashboard">
+            <i class="bi bi-speedometer2"></i>
+            Dashboard
+        </a>
+
+        <a href="/chat">
+            <i class="bi bi-stars"></i>
+            AI Chat
+        </a>
+
+        <a href="#">
+            <i class="bi bi-person"></i>
+            Profile
+        </a>
+
+        <a href="#">
+            <i class="bi bi-gear"></i>
+            Settings
+        </a>
+
+    </div>
+
+    <div class="logout">
+
+        <a href="/logout">
+            Logout
+        </a>
+
+    </div>
+
+</div>
+
+<div class="main">
+
+    <div class="card-box">
+
+        <h1>Welcome 👋</h1>
+
+        <p>
+            Welcome to your Renvora AI Dashboard
+        </p>
+
+        <a href="/chat" class="start-btn">
+            🚀 Start AI Chat
+        </a>
+
+        <div class="stats">
+
+            <div class="stat">
+
+                <h2>0</h2>
+
+                <span>Total Chats</span>
+
+            </div>
+
+            <div class="stat">
+
+                <h2>Gemini</h2>
+
+                <span>AI Model</span>
+
+            </div>
+
+            <div class="stat">
+
+                <h2>Online</h2>
+
+                <span>Status</span>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,91 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Analytics | Renvora AI{% endblock %}
+{% block page_title %}Platform Analytics{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3>Total Users</h3>
+            <div class="stat-value">{{ total_users }}</div>
+        </div>
+        <div class="stat-icon icon-blue"><i class="bi bi-people-fill"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3>Total Documents</h3>
+            <div class="stat-value">{{ total_docs }}</div>
+        </div>
+        <div class="stat-icon icon-green"><i class="bi bi-file-earmark-text-fill"></i></div>
+    </div>
+</div>
+
+<div class="two-col-grid">
+    <!-- Chart Section -->
+    <div class="card-panel">
+        <div class="card-title">Activity (Last 7 Days)</div>
+        <div style="position: relative; width: 100%; height: 250px;">
+            <canvas id="activityChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Most Active Users -->
+    <div class="card-panel">
+        <div class="card-title">Most Active Users</div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Total Chats</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in active_users %}
+                    <tr>
+                        <td>{{ u.name }}</td>
+                        <td>{{ u.chats }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="2">No chat activity yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const ctx = document.getElementById('activityChart').getContext('2d');
+    const chatStats = {{ chat_stats|tojson }};
+    const labels = chatStats.map(s => s.date);
+    const data   = chatStats.map(s => s.count);
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Chats',
+                data: data,
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37,99,235,0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, ticks: { precision: 0 } }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

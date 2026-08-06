@@ -1,0 +1,61 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Company Knowledge | Renvora AI{% endblock %}
+{% block page_title %}Company Knowledge{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="card-panel-header">
+        <div class="card-title">Knowledge Documents</div>
+        <form action="{{ url_for('admin.company_upload') }}" method="POST"
+              enctype="multipart/form-data"
+              class="upload-form-row"
+              style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <input type="hidden" name="action" value="upload">
+            <input type="file" name="document" accept=".pdf,.xlsx,.csv,.docx,.pptx"
+                   required class="form-control" style="max-width: 300px;">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-cloud-arrow-up-fill"></i> Upload
+            </button>
+        </form>
+    </div>
+
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>File Name</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in docs %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ doc.original_name or doc.file_name }}</td>
+                    <td><span class="badge badge-primary">{{ doc.file_type }}</span></td>
+                    <td>{{ doc.file_size }} B</td>
+                    <td>{{ doc.uploaded_at.strftime('%Y-%m-%d') }}</td>
+                    <td>
+                        <form action="{{ url_for('admin.company') }}" method="POST" style="display: inline;">
+                            <input type="hidden" name="doc_id" value="{{ doc.id }}">
+                            <input type="hidden" name="action" value="delete">
+                            <button class="btn btn-sm btn-danger" type="submit"
+                                onclick="return confirm('Delete this company document?');">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6">No company knowledge documents yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Renvora AI | Admin Login</title>
+    <!-- Include Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin/css/admin.css') }}">
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-glass-card">
+            <div class="login-header">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" class="brand-logo" alt="Renvora Logo">
+                <h2>Renvora AI</h2>
+                <p>Admin Portal</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            <i class="bi bi-info-circle-fill"></i> {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form action="{{ url_for('admin.login') }}" method="POST" id="adminLoginForm">
+                <div class="input-group">
+                    <i class="bi bi-envelope-fill input-icon"></i>
+                    <input type="email" name="email" placeholder="Email Address" required>
+                </div>
+                
+                <div class="input-group">
+                    <i class="bi bi-lock-fill input-icon"></i>
+                    <input type="password" id="password" name="password" placeholder="Password" required>
+                    <i class="bi bi-eye-fill toggle-password" id="togglePassword"></i>
+                </div>
+
+                <div class="options-group">
+                    <label class="remember-me">
+                        <input type="checkbox" name="remember">
+                        <span>Remember Me</span>
+                    </label>
+                </div>
+
+                <button type="submit" id="loginBtn">
+                    <span class="btn-text">Login</span>
+                    <i class="bi bi-box-arrow-in-right btn-icon"></i>
+                    <div class="spinner d-none" id="loginSpinner"></div>
+                </button>
+            </form>
+            
+            <div class="login-footer">
+                &copy; 2026 Renvora Tech
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='admin/js/admin_login.js') }}"></script>
+</body>
+</html>

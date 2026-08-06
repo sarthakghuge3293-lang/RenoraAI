@@ -1,0 +1,57 @@
+{% extends "admin/base.html" %}
+
+{% block title %}User Documents | Renvora AI{% endblock %}
+{% block page_title %}User Documents{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="card-title">All User Uploaded Documents</div>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>File Name</th>
+                    <th>Owner</th>
+                    <th>Type</th>
+                    <th>Pages</th>
+                    <th>Status</th>
+                    <th>Upload Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in docs %}
+                <tr>
+                    <td>{{ doc.id }}</td>
+                    <td>{{ doc.file_name }}</td>
+                    <td>{{ users.get(doc.user_id, 'Unknown') }}</td>
+                    <td><span class="badge badge-primary">{{ doc.doc_type }}</span></td>
+                    <td>{{ doc.page_count }}</td>
+                    <td>
+                        {% if doc.status == 'ready' %}
+                        <span class="badge badge-success">Ready</span>
+                        {% else %}
+                        <span class="badge badge-warning">{{ doc.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ doc.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>
+                        <form action="{{ url_for('admin.documents') }}" method="POST" style="display: inline;">
+                            <input type="hidden" name="doc_id" value="{{ doc.id }}">
+                            <input type="hidden" name="action" value="delete">
+                            <button class="btn btn-sm btn-danger" type="submit"
+                                onclick="return confirm('Delete this user document?');">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8">No user documents found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

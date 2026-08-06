@@ -1,0 +1,101 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Dashboard | Renvora AI{% endblock %}
+{% block page_title %}Overview{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3>Total Users</h3>
+            <div class="stat-value">{{ total_users }}</div>
+        </div>
+        <div class="stat-icon icon-blue"><i class="bi bi-people-fill"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3>Total Documents</h3>
+            <div class="stat-value">{{ total_docs }}</div>
+        </div>
+        <div class="stat-icon icon-green"><i class="bi bi-file-earmark-text-fill"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3>Today's Chats</h3>
+            <div class="stat-value">{{ today_chats }}</div>
+        </div>
+        <div class="stat-icon icon-purple"><i class="bi bi-chat-text-fill"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-info">
+            <h3>Storage Usage</h3>
+            <div class="stat-value">{{ storage_usage }}</div>
+        </div>
+        <div class="stat-icon icon-orange"><i class="bi bi-hdd-fill"></i></div>
+    </div>
+</div>
+
+<div class="two-col-grid">
+    <!-- Company Documents -->
+    <div class="card-panel" style="margin-bottom: 0;">
+        <div class="card-title">Recent Company Documents</div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Type</th>
+                        <th>Upload Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for doc in recent_company_docs %}
+                    <tr>
+                        <td>{{ doc.file_name }}</td>
+                        <td><span class="badge badge-primary">{{ doc.file_type }}</span></td>
+                        <td>{{ doc.uploaded_at.strftime('%b %d, %I:%M %p') }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3">No company documents uploaded recently.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- User Documents -->
+    <div class="card-panel" style="margin-bottom: 0;">
+        <div class="card-title">Recent User Uploads</div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Type</th>
+                        <th>Upload Time</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for doc in recent_user_docs %}
+                    <tr>
+                        <td>{{ doc.file_name }}</td>
+                        <td><span class="badge badge-primary">{{ doc.doc_type }}</span></td>
+                        <td>{{ doc.uploaded_at.strftime('%b %d, %I:%M %p') }}</td>
+                        <td>
+                            {% if doc.status == 'ready' %}
+                            <span class="badge badge-success">Ready</span>
+                            {% else %}
+                            <span class="badge badge-warning">{{ doc.status }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4">No user documents uploaded recently.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

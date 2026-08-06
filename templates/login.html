@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Renvora AI - Login</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.1/css/all.min.css">
+
+</head>
+
+<body>
+
+<!-- INTRO SCREEN -->
+
+<div id="intro">
+
+    <div class="intro-logo">
+
+        <div class="ring ring1"></div>
+
+        <div class="ring ring2"></div>
+
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Renvora">
+
+    </div>
+
+    <h2> Renvora AI Assista...</h2>
+
+</div>
+
+<!-- BACKGROUND -->
+
+<div class="background">
+
+    <div class="circle c1"></div>
+
+    <div class="circle c2"></div>
+
+    <div class="circle c3"></div>
+
+</div>
+
+<!-- LOGIN -->
+
+<div class="login-container">
+
+    <div class="login-card">
+
+        <div class="logo-top">
+
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo">
+
+        </div>
+
+        <h1>Welcome Back</h1>
+
+        <p>Sign in to continue</p>
+
+        <form method="POST">
+
+            <div class="input-box">
+
+                <i class="fa-solid fa-envelope"></i>
+
+                <input
+    type="email"
+    name="email"
+    placeholder="Email Address"
+    required>
+
+            </div>
+
+            <div class="input-box">
+
+                <i class="fa-solid fa-lock"></i>
+
+                <input
+                id="password"
+                type="password"
+                name="password"
+                placeholder="Password"
+                required>
+
+                <span id="togglePassword">
+
+                    <i class="fa-solid fa-eye"></i>
+
+                </span>
+
+            </div>
+
+            <div class="options">
+
+                <label>
+
+                    <input type="checkbox">
+
+                    Remember Me
+
+                </label>
+
+                <a href="#">Forgot Password?</a>
+
+            </div>
+
+            <button class="login-btn">
+
+                Login
+
+            </button>
+
+            <div class="admin-login">
+
+    <a href="{{ url_for('admin.login') }}" class="admin-btn">
+
+        Admin Login
+
+    </a>
+
+</div>
+
+        </form>
+
+        <div class="register">
+
+            Don't have an account?
+
+            <a href="/register">
+
+                Create Account
+
+            </a>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/gsap.min.js"></script>
+
+<script src="{{ url_for('static', filename='js/login.js') }}"></script>
+
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Create Super Admin</title>
+
+    <style>
+
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+            font-family:Arial,sans-serif;
+        }
+
+        body{
+
+            background:#f4f6f9;
+
+            display:flex;
+
+            justify-content:center;
+
+            align-items:center;
+
+            height:100vh;
+
+        }
+
+        .card{
+
+            width:420px;
+
+            background:white;
+
+            padding:35px;
+
+            border-radius:12px;
+
+            box-shadow:0 8px 25px rgba(0,0,0,.12);
+
+        }
+
+        h1{
+
+            text-align:center;
+
+            color:#2563eb;
+
+            margin-bottom:10px;
+
+        }
+
+        p{
+
+            text-align:center;
+
+            color:#666;
+
+            margin-bottom:25px;
+
+        }
+
+        input{
+
+            width:100%;
+
+            padding:12px;
+
+            margin-bottom:18px;
+
+            border:1px solid #ddd;
+
+            border-radius:8px;
+
+            font-size:15px;
+
+        }
+
+        button{
+
+            width:100%;
+
+            padding:13px;
+
+            border:none;
+
+            border-radius:8px;
+
+            background:#2563eb;
+
+            color:white;
+
+            cursor:pointer;
+
+            font-size:16px;
+
+        }
+
+        button:hover{
+
+            background:#1d4ed8;
+
+        }
+
+        .note{
+
+            margin-top:18px;
+
+            font-size:13px;
+
+            text-align:center;
+
+            color:#777;
+
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="card">
+
+    <h1>Renvora AI</h1>
+
+    <p>Create Super Admin</p>
+
+    <form method="POST">
+
+        <input
+            type="text"
+            name="name"
+            placeholder="Full Name"
+            required>
+
+        <input
+            type="email"
+            name="email"
+            placeholder="Email Address"
+            required>
+
+        <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            required>
+
+        <button type="submit">
+
+            Create Super Admin
+
+        </button>
+
+    </form>
+
+    <div class="note">
+
+        This page will automatically disable after the first Super Admin is created.
+
+    </div>
+
+</div>
+
+</body>
+
+</html>

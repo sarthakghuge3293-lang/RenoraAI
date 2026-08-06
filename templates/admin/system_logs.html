@@ -1,0 +1,17 @@
+{% extends "admin/base.html" %}
+
+{% block title %}System Logs | Renvora AI{% endblock %}
+{% block page_title %}System Logs{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="card-title">Application Logs</div>
+    <div style="background-color: #1e1e2d; padding: 20px; border-radius: 10px; font-family: monospace; color: #a9b7d0; height: 500px; overflow-y: scroll;">
+        <p>[2026-08-05 12:00:00] INFO: Renvora AI Started</p>
+        <p>[2026-08-05 12:01:15] INFO: Vector DB initialized correctly.</p>
+        <p>[2026-08-05 12:05:43] WARNING: High memory usage detected in chunking service.</p>
+        <p>[2026-08-05 12:10:22] INFO: Admin user logged in successfully.</p>
+        <!-- Mocked for now -->
+    </div>
+</div>
+{% endblock %}
