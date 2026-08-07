@@ -310,6 +310,28 @@ def api_delete_document(doc_id):
     return jsonify({"success": True, "message": "Document deleted"})
 
 
+@mobile_api.route("/documents/<int:doc_id>/rename", methods=["POST"])
+def api_rename_document(doc_id):
+    """POST /mobile/documents/<id>/rename — body: {new_name}"""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    new_name = data.get("new_name")
+    if not new_name:
+        return jsonify({"success": False, "message": "New name is required"}), 400
+
+    doc = UserDocument.query.filter_by(id=doc_id, user_id=user_id).first()
+    if not doc:
+        return jsonify({"success": False, "message": "Document not found"}), 404
+
+    doc.original_name = new_name
+    db.session.commit()
+
+    return jsonify({"success": True, "message": "Document renamed successfully"})
+
+
 @mobile_api.route("/documents/set-active", methods=["POST"])
 def api_set_active():
     """POST /mobile/documents/set-active  — body: {collection_name}"""
