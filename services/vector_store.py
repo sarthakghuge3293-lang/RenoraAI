@@ -40,12 +40,16 @@ class VectorStore:
             metadatas=metadatas
         )
 
-    def search(self, embedding, top_k=5):
+    def search(self, embedding, top_k=5, where=None):
 
-        return self.collection.query(
-            query_embeddings=[embedding],
-            n_results=top_k
-        )
+        kwargs = {
+            "query_embeddings": [embedding],
+            "n_results": top_k
+        }
+        if where:
+            kwargs["where"] = where
+
+        return self.collection.query(**kwargs)
 
     def delete_by_pdf_name(self, pdf_name):
         try:

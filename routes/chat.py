@@ -53,12 +53,20 @@ def ai_chat():
         if not chat_session:
             return jsonify({"success": False, "response": "Invalid session."}), 403
 
+    chat_history = []
+    if session_id:
+        logs = ChatLog.query.filter_by(session_id=session_id, user_id=session["user_id"]).order_by(ChatLog.timestamp.asc()).all()
+        for log in logs:
+            chat_history.append({"role": "user", "content": log.message})
+            chat_history.append({"role": "assistant", "content": log.response})
+
     collection = session.get("active_collection")
+    active_pdf = session.get("active_pdf")
 
     if collection:
-        result = generate_response(message, collection)
+        result = generate_response(message, collection, chat_history, active_pdf)
     else:
-        result = generate_response(message, "renvora_knowledge_v2")
+        result = generate_response(message, "renvora_knowledge_v2", chat_history, active_pdf)
         
     result["session_id"] = session_id
 

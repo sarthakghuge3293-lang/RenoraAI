@@ -12,7 +12,8 @@ class Retriever:
             self,
             question,
             collection_name="renvora_knowledge_v2",
-            top_k=5
+            top_k=5,
+            where=None
     ):
 
         question_embedding = self.embedding_engine.create_embedding(
@@ -23,7 +24,8 @@ class Retriever:
 
         result = vector_store.search(
             embedding=question_embedding,
-            top_k=top_k
+            top_k=top_k,
+            where=where
         )
 
         return result

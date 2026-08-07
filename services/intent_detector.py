@@ -11,7 +11,7 @@ def get_groq_client():
         return None
     return Groq(api_key=API_KEY)
 
-def detect_intent(message, has_uploaded_document=False):
+def detect_intent(message, has_uploaded_document=False, chat_history=None):
     client = get_groq_client()
     if not client:
         return {"intent": "general_knowledge", "confidence": 1.0, "clarification_question": ""}
@@ -20,10 +20,18 @@ def detect_intent(message, has_uploaded_document=False):
     if has_uploaded_document:
         sources_str += ", Uploaded Document"
         
+    chat_context = ""
+    if chat_history:
+        chat_context = "Recent Conversation Context:\n"
+        for msg in chat_history[-6:]:
+            chat_context += f"{msg['role'].capitalize()}: {msg['content']}\n"
+
     system_prompt = f"""
 You are an intent detection engine for Renvora AI. Your job is to classify the user's message to determine which data source should be used to answer it.
 
 Available sources: {sources_str}
+
+{chat_context}
 
 Intent categories:
 - "uploaded_document" (User explicitly refers to the uploaded document, or the question is obviously about uploaded data)
@@ -33,7 +41,7 @@ Intent categories:
 - "ambiguous" (The question could refer to multiple sources. e.g. "CEO" when there is both an uploaded document and company knowledge)
 
 GOLDEN RULE:
-If the user's question is ambiguous and could logically refer to more than one source (e.g. asking "Who are the team members?" while an uploaded document is present), you MUST classify it as "ambiguous".
+If the user's question is ambiguous and could logically refer to more than one source (e.g. asking "Who are the team members?" while an uploaded document is present), and the Recent Conversation Context doesn't clarify it, you MUST classify it as "ambiguous".
 Do NOT guess. If confidence is below 0.90, classify as "ambiguous".
 
 If "ambiguous", you MUST provide a "clarification_question" asking the user which source they meant.

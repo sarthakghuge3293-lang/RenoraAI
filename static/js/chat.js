@@ -168,14 +168,14 @@ function renderChatSessions(sessions) {
 function loadChatSession(sessionId, title) {
     currentSessionId = sessionId;
     
-    // Remove active class from all sessions
     document.querySelectorAll("#sessionList .chat-item").forEach(item => item.classList.remove("active"));
     
-    // Add active class to selected
     const activeItem = document.getElementById(`session-${sessionId}`);
     if (activeItem) activeItem.classList.add("active");
     
-    // Fetch and load chat history
+    const shareBtn = document.getElementById("shareChatBtn");
+    if (shareBtn) shareBtn.style.display = "block";
+    
     fetch(`/api/chat/sessions/${sessionId}`)
     .then(res => res.json())
     .then(data => {
@@ -183,7 +183,8 @@ function loadChatSession(sessionId, title) {
             chatBody.innerHTML = "";
             data.history.forEach(log => {
                 addMessage(log.message, "user");
-                addMessage(log.response, "ai");
+                // The log model doesn't currently store source, but we can display general ai
+                addMessage(log.response, "ai"); 
             });
             chatBody.scrollTop = chatBody.scrollHeight;
         }
@@ -247,12 +248,17 @@ function getFileIcon(docType) {
     }
 }
 
+let pollIntervals = {};
+
 function renderDocumentList(documents) {
-    // Keep the "Search Across All PDFs" item
     const searchAllItem = document.getElementById("searchAllDoc");
     documentList.innerHTML = "";
     documentList.appendChild(searchAllItem);
     
+    // Clear old pollers
+    Object.values(pollIntervals).forEach(clearInterval);
+    pollIntervals = {};
+
     documents.forEach(doc => {
         const docItem = document.createElement("div");
         docItem.className = "chat-item";
@@ -260,17 +266,66 @@ function renderDocumentList(documents) {
         
         const iconHtml = getFileIcon(doc.doc_type || doc.file_name.split('.').pop());
         
+        const displayName = doc.original_name || doc.file_name;
+        const uploadDate = doc.uploaded_at ? `<div style="font-size:0.7em;color:#aaa;">${doc.uploaded_at}</div>` : '';
+        
+        let actionButtons = '';
+        if (doc.status === 'Processing') {
+            actionButtons = `<span style="font-size:0.8em; color:#f59e0b;"><i class="bi bi-hourglass-split"></i> Processing</span>`;
+            
+            // Start polling for this doc
+            pollIntervals[doc.id] = setInterval(() => {
+                fetch(`/user/documents/${doc.id}/status`)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.success && d.status !== 'Processing') {
+                        fetchUserDocuments();
+                    }
+                });
+            }, 3000);
+        } else {
+            actionButtons = `
+                <button class="rename-doc-btn" onclick="renameDocument(${doc.id}, '${displayName}', event)" title="Rename Document" style="margin-right:5px;">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button class="delete-doc-btn" onclick="deleteDocument(${doc.id}, '${doc.file_name}', event)" title="Delete Document">
+                    <i class="bi bi-trash"></i>
+                </button>
+            `;
+        }
+
         docItem.innerHTML = `
             <div class="doc-info" onclick="setActiveDocument('${doc.file_name}')">
                 ${iconHtml}
-                <span class="doc-name" title="${doc.file_name}">${doc.file_name}</span>
+                <div>
+                    <span class="doc-name" title="${displayName}">${displayName}</span>
+                    ${uploadDate}
+                </div>
             </div>
-            <button class="delete-doc-btn" onclick="deleteDocument(${doc.id}, '${doc.file_name}', event)" title="Delete Document">
-                <i class="bi bi-trash"></i>
-            </button>
+            <div style="display:flex;">
+                ${actionButtons}
+            </div>
         `;
         documentList.appendChild(docItem);
     });
+}
+
+function renameDocument(doc_id, currentName, event) {
+    event.stopPropagation();
+    const newName = prompt("Enter new document name:", currentName);
+    if (!newName || newName === currentName) return;
+
+    fetch(`/user/documents/${doc_id}/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_name: newName })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) fetchUserDocuments();
+        else alert(data.message);
+    })
+    .catch(err => console.error(err));
 }
 
 function setActiveDocument(pdf_name) {
@@ -353,9 +408,11 @@ function sendMessage() {
     .then(response => response.json())
     .then(data => {
         removeTyping();
-        addMessage(data.reply || data.response, "ai"); // Using reply or response
+        addMessage(data.reply || data.response, "ai", data.source_used); 
         if (data.session_id && currentSessionId === null) {
             currentSessionId = data.session_id;
+            const shareBtn = document.getElementById("shareChatBtn");
+            if (shareBtn) shareBtn.style.display = "block";
             fetchChatSessions();
         }
     })
@@ -366,13 +423,20 @@ function sendMessage() {
     });
 }
 
-function addMessage(text, sender){
+function addMessage(text, sender, source=null){
     const message = document.createElement("div");
     message.className = `message ${sender}`;
 
     const bubble = document.createElement("div");
     bubble.className = "message-content";
     bubble.textContent = text;
+    
+    if (sender === "ai" && source && source !== "None") {
+        const sourceBadge = document.createElement("div");
+        sourceBadge.style = "font-size: 0.75rem; color: #a1a1aa; margin-top: 5px;";
+        sourceBadge.innerHTML = `<i class="bi bi-info-circle"></i> Source: ${source}`;
+        bubble.appendChild(sourceBadge);
+    }
 
     message.appendChild(bubble);
 
@@ -424,8 +488,9 @@ function removeTyping() {
 function startNewChat() {
     currentSessionId = null;
     
-    // Remove active class from all sessions
     document.querySelectorAll("#sessionList .chat-item").forEach(item => item.classList.remove("active"));
+    const shareBtn = document.getElementById("shareChatBtn");
+    if (shareBtn) shareBtn.style.display = "none";
     
     chatBody.innerHTML = `
         <div class="welcome-screen">
@@ -436,6 +501,51 @@ function startNewChat() {
 }
 
 newChatBtn.addEventListener("click", startNewChat);
+
+const searchInput = document.getElementById("chatSearchInput");
+if (searchInput) {
+    searchInput.addEventListener("input", function(e) {
+        const term = e.target.value.toLowerCase();
+        
+        // Filter Sessions
+        document.querySelectorAll("#sessionList .chat-item").forEach(item => {
+            const text = item.querySelector(".doc-name").innerText.toLowerCase();
+            if (text.includes(term)) {
+                item.style.display = "flex";
+            } else {
+                item.style.display = "none";
+            }
+        });
+        
+        // Filter Documents
+        document.querySelectorAll("#documentList .chat-item:not(#searchAllDoc)").forEach(item => {
+            const text = item.querySelector(".doc-name").innerText.toLowerCase();
+            if (text.includes(term)) {
+                item.style.display = "flex";
+            } else {
+                item.style.display = "none";
+            }
+        });
+    });
+}
+
+const shareChatBtn = document.getElementById("shareChatBtn");
+if (shareChatBtn) {
+    shareChatBtn.addEventListener("click", () => {
+        if (!currentSessionId) return;
+        
+        let transcript = "";
+        document.querySelectorAll(".message").forEach(msg => {
+            const isUser = msg.classList.contains("user");
+            const text = msg.querySelector(".message-content").innerText.replace(/Source:.*$/g, '');
+            transcript += (isUser ? "User: " : "AI: ") + text + "\\n\\n";
+        });
+        
+        navigator.clipboard.writeText(transcript).then(() => {
+            alert("Chat transcript copied to clipboard!");
+        });
+    });
+}
 
 // ==============================
 // EVENTS
