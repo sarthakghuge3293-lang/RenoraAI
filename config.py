@@ -10,6 +10,9 @@ class Config:
     # Flask Secret Key
     SECRET_KEY = os.getenv("SECRET_KEY", "renvora_secret_key")
 
+    # API Keys
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
     # Database Configuration
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_USER = os.getenv("DB_USER", "root")
