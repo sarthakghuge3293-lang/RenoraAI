@@ -2,7 +2,7 @@ import chromadb
 
 class VectorStore:
 
-    def __init__(self, collection_name="renvora_knowledge"):
+    def __init__(self, collection_name="renvora_knowledge_v2"):
 
         self.client = chromadb.PersistentClient(
             path="database/chroma"
