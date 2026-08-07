@@ -16,7 +16,7 @@ class EmbeddingEngine:
             raise ValueError("GEMINI_API_KEY is missing. Please set it in your environment.")
 
         genai.configure(api_key=api_key)
-        self.model_name = "models/text-embedding-004"
+        self.model_name = "models/embedding-001"
         print("Embedding Engine Ready")
 
     def create_embedding(self, text):
