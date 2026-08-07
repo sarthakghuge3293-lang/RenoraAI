@@ -1,7 +1,6 @@
-from google import genai
+import google.generativeai as genai
 from config import Config
 import os
-
 
 class EmbeddingEngine:
 
@@ -16,8 +15,8 @@ class EmbeddingEngine:
         if not api_key:
             raise ValueError("GEMINI_API_KEY is missing. Please set it in your environment.")
 
-        self.client = genai.Client(api_key=api_key)
-        self.model_name = "embedding-001"
+        genai.configure(api_key=api_key)
+        self.model_name = "models/text-embedding-004"
         print("Embedding Engine Ready")
 
     def create_embedding(self, text):
@@ -25,11 +24,13 @@ class EmbeddingEngine:
         if not isinstance(text, str):
             text = str(text)
             
-        response = self.client.models.embed_content(
+        response = genai.embed_content(
             model=self.model_name,
-            contents=text
+            content=text,
+            task_type="retrieval_document",
+            title="Renvora Document"
         )
-        return response.embeddings[0].values
+        return response['embedding']
 
     def create_embeddings(self, chunks):
         embedded_chunks = []
