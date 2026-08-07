@@ -11,7 +11,8 @@ from routes.user_pdf import user_pdf
 from routes.pdf_ai import pdf_ai
 from routes.mobile_api import mobile_api
 from models.user_document import UserDocument
-
+from models.chat_session import ChatSession
+from models.chat_log import ChatLog
 app = Flask(__name__)
 
 # Load Configuration
