@@ -13,7 +13,8 @@ class User(db.Model):
     db.Enum(
         "super_admin",
         "admin",
-        "user"
+        "user",
+        name="role_enum"
     ),
     default="user"
 )
