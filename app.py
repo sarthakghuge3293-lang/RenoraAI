@@ -39,6 +39,27 @@ app.register_blueprint(mobile_api)
 def home():
     return redirect("/login")
 
+@app.route("/force_setup_admin")
+def force_setup_admin():
+    from models.user import User
+    from werkzeug.security import generate_password_hash
+    email = "shivcoretech11@gmail.com"
+    existing = User.query.filter_by(email=email).first()
+    if existing:
+        existing.password = generate_password_hash("Admin.123")
+        existing.role = "super_admin"
+        db.session.commit()
+        return "Admin user updated successfully! Go to /admin/login"
+    else:
+        new_admin = User(
+            name="Admin",
+            email=email,
+            password=generate_password_hash("Admin.123"),
+            role="super_admin"
+        )
+        db.session.add(new_admin)
+        db.session.commit()
+        return "Admin user created successfully! Go to /admin/login"
 
 # Run Application
 if __name__ == "__main__":
