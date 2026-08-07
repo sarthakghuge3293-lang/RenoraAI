@@ -18,6 +18,13 @@
                 <i class="bi bi-cloud-arrow-up-fill"></i> Upload
             </button>
         </form>
+        <form action="{{ url_for('admin.reset_chromadb') }}" method="POST"
+              onsubmit="return confirm('WARNING: This will delete ALL indexed documents from the AI database. You will need to re-upload all documents. Continue?');"
+              style="margin-left: auto;">
+            <button type="submit" class="btn btn-danger" style="white-space: nowrap;">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset AI Database
+            </button>
+        </form>
     </div>
 
     <div class="table-responsive">

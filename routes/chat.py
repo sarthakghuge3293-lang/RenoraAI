@@ -58,7 +58,7 @@ def ai_chat():
     if collection:
         result = generate_response(message, collection)
     else:
-        result = generate_response(message, "renvora_knowledge")
+        result = generate_response(message, "renvora_knowledge_v2")
         
     result["session_id"] = session_id
 
@@ -69,7 +69,7 @@ def ai_chat():
             session_id=session_id,
             message=message,
             response=result.get("response", "Error generating response"),
-            collection_used=collection if collection else "renvora_knowledge"
+            collection_used=collection if collection else "renvora_knowledge_v2"
         )
         db.session.add(log_entry)
         db.session.commit()

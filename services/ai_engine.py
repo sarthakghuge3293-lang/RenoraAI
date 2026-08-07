@@ -253,7 +253,7 @@ Python is a high-level, interpreted programming language known for its readabili
             collection_name
     ):
 
-        has_uploaded = bool(collection_name and collection_name != "renvora_knowledge")
+        has_uploaded = bool(collection_name and collection_name != "renvora_knowledge_v2")
         intent_data = detect_intent(user_message, has_uploaded_document=has_uploaded)
         
         intent_type = intent_data.get("intent", "general_knowledge")
@@ -272,7 +272,7 @@ Python is a high-level, interpreted programming language known for its readabili
         if intent_type == "uploaded_document" and has_uploaded:
             target_collection = collection_name
         elif intent_type == "renvora_knowledge":
-            target_collection = "renvora_knowledge"
+            target_collection = "renvora_knowledge_v2"
             
         reply = self.ask_llm(
             user_message,

@@ -11,7 +11,7 @@ class Retriever:
     def search(
             self,
             question,
-            collection_name="renvora_knowledge",
+            collection_name="renvora_knowledge_v2",
             top_k=5
     ):
 

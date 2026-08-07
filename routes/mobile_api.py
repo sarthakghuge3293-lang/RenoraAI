@@ -141,7 +141,7 @@ def api_chat():
     if not message:
         return jsonify({"success": False, "message": "Message cannot be empty"}), 400
 
-    collection = data.get("collection") or session.get("active_collection") or "renvora_knowledge"
+    collection = data.get("collection") or session.get("active_collection") or "renvora_knowledge_v2"
     result = generate_response(message, collection)
 
     # Save chat log

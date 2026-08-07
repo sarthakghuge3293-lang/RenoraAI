@@ -115,6 +115,27 @@ def dashboard():
 
 
 # ==========================================
+# Reset ChromaDB (Admin Tool)
+# ==========================================
+@admin.route("/reset_chromadb", methods=["POST"])
+@require_super_admin
+def reset_chromadb():
+    import chromadb
+    try:
+        client = chromadb.PersistentClient(path="database/chroma")
+        for name in ["renvora_knowledge", "renvora_knowledge_v2"]:
+            try:
+                client.delete_collection(name)
+            except Exception:
+                pass
+        client.get_or_create_collection(name="renvora_knowledge_v2")
+        flash("ChromaDB reset successfully! You can now re-upload your documents.", "success")
+    except Exception as e:
+        flash(f"Error resetting ChromaDB: {str(e)}", "danger")
+    return redirect(url_for("admin.company"))
+
+
+# ==========================================
 # Company Knowledge
 # ==========================================
 @admin.route("/company", methods=["GET", "POST"])
@@ -130,7 +151,7 @@ def company():
             doc = KnowledgeFile.query.get(doc_id)
             if doc:
                 try:
-                    vector_store = VectorStore("renvora_knowledge")
+                    vector_store = VectorStore("renvora_knowledge_v2")
                     vector_store.delete_by_pdf_name(doc.file_name)
                 except Exception as e:
                     print("Error deleting from ChromaDB:", e)
@@ -193,8 +214,8 @@ def company_upload():
             document_reader = DocumentReader()
             chunker = TextChunker()
             embedding_engine = EmbeddingEngine()
-            # Company knowledge uses 'renvora_knowledge'
-            vector_store = VectorStore("renvora_knowledge")
+            # Company knowledge uses 'renvora_knowledge_v2'
+            vector_store = VectorStore("renvora_knowledge_v2")
 
             pages = document_reader.read_document(filepath, file.filename)
             chunks = chunker.chunk_document(filename, pages)
