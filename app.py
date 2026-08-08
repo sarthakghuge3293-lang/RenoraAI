@@ -66,18 +66,21 @@ def force_setup_admin():
 @app.route("/migrate")
 def migrate_db():
     from sqlalchemy import text
+
     migrations = [
-        "ALTER TABLE chat_sessions ADD COLUMN session_uuid VARCHAR(36);",
-        "ALTER TABLE chat_sessions ADD COLUMN active_source VARCHAR(50);",
-        "ALTER TABLE chat_sessions ADD COLUMN active_doc_id INTEGER;",
-        "ALTER TABLE chat_sessions ADD COLUMN active_doc_name VARCHAR(255);",
-        "ALTER TABLE chat_sessions ADD COLUMN is_shared BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE chat_sessions ADD COLUMN share_token VARCHAR(36);",
-        "ALTER TABLE chat_logs ADD COLUMN source_used VARCHAR(255);",
-        "ALTER TABLE chat_logs ADD COLUMN intent_detected VARCHAR(50);",
-        "ALTER TABLE user_documents ADD COLUMN description TEXT;"
-    ]
+    "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS session_uuid VARCHAR(36);",
+    "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS active_source VARCHAR(50);",
+    "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS active_doc_id INTEGER;",
+    "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS active_doc_name VARCHAR(255);",
+    "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS is_shared BOOLEAN DEFAULT FALSE;",
+    "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS share_token VARCHAR(36);",
+    "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+    "ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS source_used VARCHAR(255);",
+    "ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS intent_detected VARCHAR(50);",
+    "ALTER TABLE user_documents ADD COLUMN IF NOT EXISTS description TEXT;"
+]
     results = []
+
     for q in migrations:
         try:
             db.session.execute(text(q))
@@ -85,9 +88,14 @@ def migrate_db():
             results.append(f"SUCCESS: {q}")
         except Exception as e:
             db.session.rollback()
-            results.append(f"FAILED (or already exists): {q} - ERROR: {str(e)}")
-    
-    return {"status": "Migration completed", "details": results}
+            results.append(
+                f"FAILED (or already exists): {q} - ERROR: {str(e)}"
+            )
+
+    return {
+        "status": "Migration completed",
+        "details": results
+    }
 
 # Run Application
 if __name__ == "__main__":
