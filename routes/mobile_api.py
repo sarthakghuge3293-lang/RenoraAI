@@ -489,103 +489,121 @@ def api_chat():
     if err:
         return err
 
-    data = request.get_json() or {}
-    message = data.get("message", "").strip()
+    try:
+        data = request.get_json() or {}
+        message = data.get("message", "").strip()
 
-    if not message:
-        return jsonify({"success": False, "message": "Message cannot be empty"}), 400
+        if not message:
+            return jsonify({"success": False, "message": "Message cannot be empty"}), 400
 
-    # Resolve or create session
-    session_uuid = data.get("session_uuid") or str(uuid.uuid4())
-    chat_session = _get_or_create_session(user_id, session_uuid)
+        # Resolve or create session
+        session_uuid = data.get("session_uuid") or str(uuid.uuid4())
+        chat_session = _get_or_create_session(user_id, session_uuid)
 
-    # Handle source override (user tapped a clarification option)
-    source_override = data.get("source_override")
-    doc_id_override = data.get("doc_id")
-    if source_override:
-        valid_sources = {"renvora_knowledge", "uploaded_document", "general_ai"}
-        if source_override in valid_sources:
-            chat_session.active_source = source_override
-            if source_override == "uploaded_document" and doc_id_override:
-                doc = UserDocument.query.filter_by(
-                    id=doc_id_override, user_id=user_id
-                ).first()
-                if doc:
-                    chat_session.active_doc_id = doc.id
-                    chat_session.active_doc_name = doc.file_name
-            db.session.commit()
+        # Handle source override (user tapped a clarification option)
+        source_override = data.get("source_override")
+        doc_id_override = data.get("doc_id")
+        if source_override:
+            valid_sources = {"renvora_knowledge", "uploaded_document", "general_ai"}
+            if source_override in valid_sources:
+                chat_session.active_source = source_override
+                if source_override == "uploaded_document" and doc_id_override:
+                    doc = UserDocument.query.filter_by(
+                        id=doc_id_override, user_id=user_id
+                    ).first()
+                    if doc:
+                        chat_session.active_doc_id = doc.id
+                        chat_session.active_doc_name = doc.file_name
+                db.session.commit()
 
-    # Build conversation history from DB
-    chat_history = _build_chat_history(chat_session.id, limit=10)
+        # Build conversation history from DB
+        chat_history = _build_chat_history(chat_session.id, limit=10)
 
-    # Get user's documents (for smart source selection)
-    user_documents = [
-        d.to_dict()
-        for d in UserDocument.query.filter_by(user_id=user_id).all()
-        if d.status == "ready"
-    ]
+        # Get user's ready documents (permanent memory — no re-upload needed)
+        user_documents = [
+            d.to_dict()
+            for d in UserDocument.query.filter_by(user_id=user_id).all()
+            if d.status == "ready"
+        ]
 
-    # ── Run the AI pipeline ──────────────────────────────────────────────────
-    result = ai_engine.generate_response(
-        user_message=message,
-        user_id=user_id,
-        chat_history=chat_history,
-        locked_source=chat_session.active_source,
-        locked_doc_name=chat_session.active_doc_name,
-        user_documents=user_documents,
-    )
+        print(f"[MobileAPI] Chat: user={user_id}, session={chat_session.id}, "
+              f"docs={len(user_documents)}, locked_source={chat_session.active_source}")
 
-    reply         = result.get("reply", "")
-    intent        = result.get("intent", "general_knowledge")
-    source_used   = result.get("source_used", "General AI Knowledge")
-    lock_source   = result.get("lock_source")
-    lock_doc_name = result.get("lock_doc_name")
-    needs_clarif  = result.get("needs_clarification", False)
-    suggested     = result.get("suggested_sources", [])
+        # ── Run the AI pipeline ──────────────────────────────────────────────────
+        result = ai_engine.generate_response(
+            user_message=message,
+            user_id=user_id,
+            chat_history=chat_history,
+            locked_source=chat_session.active_source,
+            locked_doc_name=chat_session.active_doc_name,
+            user_documents=user_documents,
+        )
 
-    # Update session source lock (only if AI determined a clear source)
-    if lock_source and not needs_clarif:
-        if not chat_session.active_source:  # Don't override existing lock
-            chat_session.active_source = lock_source
-            chat_session.active_doc_name = lock_doc_name
+        reply         = result.get("reply", "")
+        intent        = result.get("intent", "general_knowledge")
+        source_used   = result.get("source_used", "General AI Knowledge")
+        lock_source   = result.get("lock_source")
+        lock_doc_name = result.get("lock_doc_name")
+        needs_clarif  = result.get("needs_clarification", False)
+        suggested     = result.get("suggested_sources", [])
 
-    # Auto-title on first message
-    if chat_session.title == "New Chat" and not needs_clarif:
-        chat_session.title = _auto_title(message)
+        print(f"[MobileAPI] AI replied: intent={intent}, source={source_used}, "
+              f"reply_len={len(reply)}, needs_clarif={needs_clarif}")
 
-    # Update session timestamp
-    from datetime import datetime
-    chat_session.updated_at = datetime.utcnow()
-    db.session.commit()
+        # Update session source lock (only if AI determined a clear source)
+        if lock_source and not needs_clarif:
+            if not chat_session.active_source:  # Don't override existing lock
+                chat_session.active_source = lock_source
+                chat_session.active_doc_name = lock_doc_name
 
-    # Save to chat log (don't save clarification questions as real logs)
-    if not needs_clarif:
-        try:
-            log = ChatLog(
-                user_id=user_id,
-                session_id=chat_session.id,
-                message=message,
-                response=reply,
-                collection_used=f"user_{user_id}" if intent == "uploaded_document" else "renvora_knowledge_v2",
-                source_used=source_used,
-                intent_detected=intent,
-            )
-            db.session.add(log)
-            db.session.commit()
-        except Exception as e:
-            print(f"[MobileAPI] Chat log save error: {e}")
+        # Auto-title on first message
+        if chat_session.title == "New Chat" and not needs_clarif:
+            chat_session.title = _auto_title(message)
 
-    return jsonify({
-        "success": True,
-        "reply": reply,
-        "session_id": chat_session.id,
-        "session_uuid": chat_session.session_uuid,
-        "session_title": chat_session.title,
-        "intent": intent,
-        "source_used": source_used,
-        "needs_clarification": needs_clarif,
-        "suggested_sources": suggested,
-    })
+        # Update session timestamp
+        from datetime import datetime
+        chat_session.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        # Save to chat log (don't save clarification questions as real logs)
+        if not needs_clarif:
+            try:
+                log = ChatLog(
+                    user_id=user_id,
+                    session_id=chat_session.id,
+                    message=message,
+                    response=reply,
+                    collection_used=f"user_{user_id}" if intent == "uploaded_document" else "renvora_knowledge_v2",
+                    source_used=source_used,
+                    intent_detected=intent,
+                )
+                db.session.add(log)
+                db.session.commit()
+            except Exception as e:
+                print(f"[MobileAPI] Chat log save error: {e}")
+
+        return jsonify({
+            "success": True,
+            "reply": reply,
+            "session_id": chat_session.id,
+            "session_uuid": chat_session.session_uuid,
+            "session_title": chat_session.title,
+            "intent": intent,
+            "source_used": source_used,
+            "needs_clarification": needs_clarif,
+            "suggested_sources": suggested,
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[MobileAPI] CRITICAL ERROR in api_chat: {e}")
+        return jsonify({
+            "success": False,
+            "reply": f"Server error: {str(e)}",
+            "error": str(e),
+        }), 500
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -609,41 +627,87 @@ def api_get_documents():
 
 
 def _process_document_background(app, file_path, filename, user_id, collection_name, doc_id):
-    """Background thread: read, chunk, embed, store in ChromaDB."""
+    """Background thread: read → chunk → embed → store in ChromaDB → set status='ready'."""
     with app.app_context():
         try:
-            pages = document_reader.read_document(file_path, filename)
-            chunks = chunker.chunk_document(filename, pages)
+            print(f"[DocProcessor] Starting: {filename} (user={user_id}, doc_id={doc_id})")
 
-            if not chunks:
-                doc = UserDocument.query.get(doc_id)
-                if doc:
-                    doc.status = "Failed: No text found"
-                    db.session.commit()
+            # Step 1: Read document
+            try:
+                pages = document_reader.read_document(file_path, filename)
+                print(f"[DocProcessor] Read {len(pages)} pages from {filename}")
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                _update_doc_status(doc_id, f"Failed: Cannot read file — {str(e)[:100]}")
                 return
 
-            embedded = embedding_engine.create_embeddings(chunks)
-            vs = VectorStore(collection_name)
-            vs.add_chunks(embedded)
+            # Step 2: Chunk
+            try:
+                chunks = chunker.chunk_document(filename, pages)
+                print(f"[DocProcessor] Created {len(chunks)} chunks from {filename}")
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                _update_doc_status(doc_id, f"Failed: Chunking error — {str(e)[:100]}")
+                return
 
+            if not chunks:
+                print(f"[DocProcessor] No text found in {filename}")
+                _update_doc_status(doc_id, "Failed: No text found in document")
+                return
+
+            # Step 3: Embed
+            try:
+                embedded = embedding_engine.create_embeddings(chunks)
+                print(f"[DocProcessor] Embedded {len(embedded)}/{len(chunks)} chunks")
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                _update_doc_status(doc_id, f"Failed: Embedding error — {str(e)[:100]}")
+                return
+
+            if not embedded:
+                _update_doc_status(doc_id, "Failed: No chunks could be embedded")
+                return
+
+            # Step 4: Store in ChromaDB
+            try:
+                vs = VectorStore(collection_name)
+                vs.add_chunks(embedded)
+                print(f"[DocProcessor] Stored {len(embedded)} chunks in ChromaDB collection '{collection_name}'")
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                _update_doc_status(doc_id, f"Failed: ChromaDB storage error — {str(e)[:100]}")
+                return
+
+            # Step 5: Update DB to 'ready'
             doc = UserDocument.query.get(doc_id)
             if doc:
                 doc.status = "ready"
                 doc.page_count = len(pages)
-                # Auto-generate a brief description from first chunk
                 if chunks:
-                    first_text = chunks[0].get("text", "")[:300]
-                    doc.description = first_text
+                    doc.description = chunks[0].get("text", "")[:300]
                 db.session.commit()
-                print(f"[DocProcessor] ✅ {filename} processed ({len(chunks)} chunks)")
+                print(f"[DocProcessor] SUCCESS: {filename} processed successfully ({len(embedded)} chunks, {len(pages)} pages)")
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            doc = UserDocument.query.get(doc_id)
-            if doc:
-                doc.status = f"Failed: {str(e)[:80]}"
-                db.session.commit()
+            print(f"[DocProcessor] ERROR: Unexpected error processing {filename}: {e}")
+            _update_doc_status(doc_id, f"Failed: {str(e)[:100]}")
+
+
+def _update_doc_status(doc_id: int, status: str):
+    """Helper to update document status in DB."""
+    try:
+        doc = UserDocument.query.get(doc_id)
+        if doc:
+            doc.status = status
+            db.session.commit()
+    except Exception as e:
+        print(f"[DocProcessor] Could not update status for doc_id={doc_id}: {e}")
 
 
 @mobile_api.route("/documents/upload", methods=["POST"])
