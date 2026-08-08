@@ -1,15 +1,51 @@
 """
 services/intent_detector.py
-────────────────────────────
-Classifies the user's intent so the AI can decide which source to retrieve from.
 
-Improvements over v1:
-- Passes actual document names (not just a boolean flag) so the LLM can be specific.
-- Passes the session's locked source so reference questions ("use the PDF") resolve correctly.
-- Significantly reduced false-positive "ambiguous" classifications via better examples.
-- Returns `suggested_sources` list for the Flutter UI to render as tap buttons.
-- Only classifies as "ambiguous" when the question genuinely could come from two distinct sources
-  AND the chat history doesn't resolve which one.
+Renvora AI Source / Intent Detector
+
+IMPORTANT:
+Conversation context is used to understand what the user means.
+Conversation context does NOT permanently lock the source.
+
+Available factual sources:
+    1. renvora_knowledge
+    2. uploaded_document
+
+The assistant must NOT use general-world knowledge as a factual source.
+
+Examples:
+
+User uploads XYZ.pdf
+
+User:
+    "Company ka naam kya hai?"
+    -> uploaded_document
+
+User:
+    "Iski services kya hain?"
+    -> uploaded_document
+
+User:
+    "Renvora ki services kya hain?"
+    -> renvora_knowledge
+
+User:
+    "XYZ wali company ka naam kya hai?"
+    -> uploaded_document
+
+User:
+    "Is document me joining date kya hai?"
+    -> uploaded_document
+
+User:
+    "Renvora ka CEO kaun hai?"
+    -> renvora_knowledge
+
+User:
+    "India ki capital kya hai?"
+    -> unsupported
+
+The previous source must NOT automatically control the next question.
 """
 
 import os
@@ -18,16 +54,30 @@ import json
 from dotenv import load_dotenv
 from groq import Groq
 
+
+# ============================================================================
+# ENVIRONMENT
+# ============================================================================
+
 load_dotenv()
 
 _API_KEY = os.getenv("GROQ_API_KEY")
 
 
+# ============================================================================
+# GROQ CLIENT
+# ============================================================================
+
 def _get_client():
     if not _API_KEY:
         return None
+
     return Groq(api_key=_API_KEY)
 
+
+# ============================================================================
+# MAIN INTENT DETECTOR
+# ============================================================================
 
 def detect_intent(
     message: str,
@@ -37,158 +87,862 @@ def detect_intent(
     locked_source: str = None,
 ) -> dict:
     """
+    Decide which factual source should answer the CURRENT question.
+
     Returns:
+
     {
-        "intent": str,                  # see categories below
-        "confidence": float,            # 0.0 – 1.0
-        "clarification_question": str,  # empty unless intent == "ambiguous"
-        "suggested_sources": list[str], # source options for UI chips
+        "intent": str,
+        "confidence": float,
+        "clarification_question": str,
+        "suggested_sources": list[str]
     }
 
-    Intent categories:
-        "general_knowledge"    - greetings, general questions, math, programming, etc.
-        "renvora_knowledge"    - questions about Renvora Tech, its team, services, etc.
-        "uploaded_document"    - questions about the user's own uploaded files
-        "previous_conversation"- refers to something said in the conversation history
-        "ambiguous"            - truly could be answered by 2+ sources equally
+    Valid intents:
+
+        renvora_knowledge
+        uploaded_document
+        previous_conversation
+        ambiguous
+        unsupported
+
+    IMPORTANT:
+
+    "previous_conversation" means the message is a follow-up/reference
+    and conversation context is needed to understand it.
+
+    It does NOT mean that conversation history itself is a factual source.
     """
 
     client = _get_client()
+
     if not client:
-        return _default_response()
+        return _default_response(
+            has_uploaded_document=has_uploaded_document
+        )
 
-    # Build document listing string
-    doc_list_str = ""
+    # =========================================================================
+    # INPUT NORMALIZATION
+    # =========================================================================
+
+    message = (message or "").strip()
+
+    if not message:
+        return {
+            "intent": "unsupported",
+            "confidence": 1.0,
+            "clarification_question": "",
+            "suggested_sources": [],
+        }
+
+    document_names = document_names or []
+    chat_history = chat_history or []
+
+    # =========================================================================
+    # DOCUMENT LIST
+    # =========================================================================
+
     if has_uploaded_document and document_names:
-        doc_list_str = "User has uploaded the following documents:\n"
-        for i, name in enumerate(document_names, 1):
-            doc_list_str += f"  {i}. {name}\n"
+
+        doc_list_str = (
+            "The user has these available uploaded documents:\n"
+        )
+
+        for index, name in enumerate(
+            document_names,
+            start=1
+        ):
+            doc_list_str += (
+                f"  {index}. {name}\n"
+            )
+
     elif has_uploaded_document:
-        doc_list_str = "User has uploaded at least one document (name unknown).\n"
+
+        doc_list_str = (
+            "The user has uploaded at least one document, "
+            "but its filename is unavailable.\n"
+        )
+
     else:
-        doc_list_str = "User has NOT uploaded any documents.\n"
 
-    # Build conversation context (last 6 messages)
+        doc_list_str = (
+            "The user currently has no uploaded documents.\n"
+        )
+
+    # =========================================================================
+    # CONVERSATION HISTORY
+    # =========================================================================
+
     conversation_str = ""
+
     if chat_history:
-        conversation_str = "Recent conversation:\n"
-        for msg in (chat_history or [])[-6:]:
-            role = msg.get("role", "user").capitalize()
-            conversation_str += f"  {role}: {msg.get('content', '')}\n"
 
-    # Build locked source string
-    locked_str = ""
+        conversation_str = (
+            "Recent conversation context:\n"
+        )
+
+        for msg in chat_history[-10:]:
+
+            role = str(
+                msg.get(
+                    "role",
+                    "user"
+                )
+            ).capitalize()
+
+            content = str(
+                msg.get(
+                    "content",
+                    ""
+                )
+            ).strip()
+
+            if not content:
+                continue
+
+            conversation_str += (
+                f"  {role}: {content}\n"
+            )
+
+    else:
+
+        conversation_str = (
+            "There is no previous conversation context.\n"
+        )
+
+    # =========================================================================
+    # LOCK INFORMATION
+    # =========================================================================
+
+    lock_str = ""
+
     if locked_source:
-        locked_str = f"\nNOTE: The user has already selected '{locked_source}' as their source for this session. If the message is a follow-up question, classify as '{locked_source}' with confidence 1.0.\n"
 
-    system_prompt = f"""You are an intent detection engine for Renvora AI.
+        lock_str = f"""
+An explicit source selection may exist for this session:
 
-Your ONLY job is to classify the user's message and decide which data source the AI should retrieve from.
+    {locked_source}
 
-Available sources:
-1. "renvora_knowledge"    — Renvora Tech company info (team, services, projects, history, etc.)
-2. "uploaded_document"    — Files the user has personally uploaded
-3. "general_knowledge"    — Generic facts, greetings, programming, science, math, etc.
-4. "previous_conversation"— The answer is in the recent chat history
-5. "ambiguous"            — The question CANNOT be resolved without asking the user
+IMPORTANT:
+This source lock should only be followed when the CURRENT message
+is a follow-up that clearly refers to the explicitly selected source.
 
-{doc_list_str}
-{conversation_str}
-{locked_str}
+If the CURRENT message explicitly asks about another source,
+the current question takes priority.
 
-CLASSIFICATION RULES:
-─────────────────────
-1. If the message is a greeting, general question, or something clearly unrelated to any company or document → "general_knowledge" (confidence 1.0)
+Example:
 
-2. If the message explicitly mentions Renvora, the company, its team, services, CEO, projects → "renvora_knowledge" (confidence > 0.95)
+Previous source:
+uploaded_document
 
-3. If the message says "my document", "the file I uploaded", "the PDF", "the spreadsheet", or refers to specific content only in uploaded files → "uploaded_document" (confidence > 0.95)
+Current message:
+"Renvora ki services kya hain?"
 
-4. If the message uses "this", "that", "you mentioned", "before", "earlier", "what you said" → "previous_conversation" (confidence 1.0)
+Correct:
+renvora_knowledge
 
-5. ONLY classify as "ambiguous" if:
-   - The user has at least 1 uploaded document, AND
-   - Renvora knowledge ALSO covers this topic (e.g., user uploads a Renvora employees list → asks "who are the team members?"), AND
-   - The conversation history does NOT resolve which source to use.
-   
-   DO NOT classify as "ambiguous" if:
-   - Only one source could possibly contain the answer.
-   - The user just asked a general question.
-   - The confidence is slightly below 1.0 for any other reason.
-
-ANTI-PATTERNS (do NOT do these):
-- Do NOT classify "What is Python?" as ambiguous just because a PDF was uploaded.
-- Do NOT classify "Who is the CEO of Renvora?" as ambiguous unless the user uploaded a different company's org chart.
-- Do NOT ask for clarification unless you are certain that two distinct sources can genuinely answer.
-
-CLARIFICATION QUESTION FORMAT (only when ambiguous):
-- Be specific. Name the actual document files.
-- Example: "I found this topic in two places — the Renvora company knowledge and your uploaded 'Employees.xlsx'. Which one should I use?"
-- Keep it short. One sentence per option.
-
-OUTPUT FORMAT (JSON only, no other text):
-{{
-  "intent": "<category>",
-  "confidence": <float 0.0-1.0>,
-  "clarification_question": "<question or empty string>",
-  "suggested_sources": ["<option1>", "<option2>"]
-}}
+Do NOT blindly force the old source.
 """
 
+    # =========================================================================
+    # SYSTEM PROMPT
+    # =========================================================================
+
+    system_prompt = f"""
+You are the source-selection engine for Renvora AI.
+
+Your ONLY job is to understand the CURRENT user message and decide
+which factual knowledge source should be used to answer it.
+
+You do NOT generate the final answer.
+
+================================================================
+AVAILABLE FACTUAL SOURCES
+================================================================
+
+SOURCE 1:
+"renvora_knowledge"
+
+This contains private Renvora company knowledge, such as:
+
+- Renvora company information
+- Renvora services
+- Renvora projects
+- Renvora team
+- Renvora policies
+- Renvora products
+- Renvora company history
+- information uploaded by Renvora admins into company knowledge
+
+SOURCE 2:
+"uploaded_document"
+
+This contains documents personally uploaded by the current user.
+
+Examples:
+
+- PDF
+- joining letter
+- resume
+- company document
+- spreadsheet
+- report
+- image/document
+- any other user-owned uploaded knowledge
+
+SOURCE 3:
+"unsupported"
+
+This means the question is outside the available Renvora knowledge
+and uploaded documents.
+
+IMPORTANT:
+General-world knowledge is NOT an answer source.
+
+For example:
+
+"What is Python?"
+"What is the capital of India?"
+"How does gravity work?"
+
+must NOT be classified as a source that the AI can answer from,
+unless that information is actually present in the available sources.
+
+================================================================
+{doc_list_str}
+================================================================
+
+{conversation_str}
+
+================================================================
+{lock_str}
+================================================================
+
+================================================================
+CORE SOURCE SELECTION RULE
+================================================================
+
+Always analyze the CURRENT question independently.
+
+Previous conversation helps understand what words such as:
+
+- this
+- that
+- it
+- this company
+- this document
+- this file
+- same company
+- same document
+- isme
+- iska
+- usme
+- uska
+- woh
+- wahi
+- aur
+- aur batao
+- previous one
+- above
+- earlier
+- joining date
+- services
+- company
+
+refer to.
+
+BUT:
+
+Previous conversation does NOT permanently determine the source.
+
+================================================================
+RULE 1 — EXPLICIT RENVORA REFERENCE
+================================================================
+
+If the user explicitly mentions:
+
+- Renvora
+- Renvora Tech
+- your company
+- your services
+- Renvora services
+- Renvora team
+- Renvora CEO
+- Renvora projects
+
+classify:
+
+"renvora_knowledge"
+
+Example:
+
+User:
+"Renvora ki services kya hain?"
+
+Answer source:
+renvora_knowledge
+
+================================================================
+RULE 2 — EXPLICIT USER DOCUMENT REFERENCE
+================================================================
+
+If the user explicitly mentions:
+
+- my PDF
+- my document
+- uploaded PDF
+- uploaded document
+- the file
+- this PDF
+- this document
+- joining letter
+- resume
+- XYZ document
+- XYZ company document
+- the document I uploaded
+
+classify:
+
+"uploaded_document"
+
+Example:
+
+User:
+"Is PDF me joining date kya hai?"
+
+Source:
+uploaded_document
+
+================================================================
+RULE 3 — DOCUMENT COMPANY QUESTIONS
+================================================================
+
+If the user asks about a company that is clearly the company
+mentioned in an uploaded document, use:
+
+"uploaded_document"
+
+Example:
+
+User uploaded:
+
+XYZ_Company.pdf
+
+User:
+"Company ka name kya hai?"
+
+Correct:
+uploaded_document
+
+User:
+"Is company ki services kya hain?"
+
+Correct:
+uploaded_document
+
+User:
+"XYZ company kya karti hai?"
+
+Correct:
+uploaded_document
+
+================================================================
+RULE 4 — RENVORA VS USER DOCUMENT
+================================================================
+
+The user can switch sources at any time.
+
+Example:
+
+User uploaded:
+XYZ_Company.pdf
+
+Conversation:
+
+User:
+"Is document ka summary do."
+
+-> uploaded_document
+
+User:
+"Isme joining kab hai?"
+
+-> uploaded_document
+
+User:
+"Renvora ki services kya hain?"
+
+-> renvora_knowledge
+
+User:
+"XYZ company ka office kaha hai?"
+
+-> uploaded_document
+
+User:
+"Renvora ka founder kaun hai?"
+
+-> renvora_knowledge
+
+DO NOT keep using the PDF just because the previous 10 messages
+were about the PDF.
+
+================================================================
+RULE 5 — SHORT FOLLOW-UP QUESTIONS
+================================================================
+
+If the message is something like:
+
+"aur?"
+"aur batao"
+"simple me?"
+"detail me?"
+"kab?"
+"kaha?"
+"kaun?"
+"kitna?"
+"iska?"
+"isme?"
+"usme?"
+"wahi wala"
+"pehle wala"
+
+use conversation history to understand what the user is referring to.
+
+Then classify the appropriate factual source.
+
+Example:
+
+User:
+"Is PDF ka summary do."
+
+Assistant:
+"Ye XYZ Technologies ka joining document hai."
+
+User:
+"Joining kab hai?"
+
+-> uploaded_document
+
+Example:
+
+User:
+"Renvora ki services kya hain?"
+
+Assistant:
+"Renvora provides..."
+
+User:
+"aur batao"
+
+-> renvora_knowledge
+
+================================================================
+RULE 6 — SOURCE SWITCHING
+================================================================
+
+The current question always has priority.
+
+Example:
+
+Previous 8 questions:
+uploaded_document
+
+Current:
+"Renvora ke projects kya hain?"
+
+Correct:
+renvora_knowledge
+
+Example:
+
+Previous 8 questions:
+renvora_knowledge
+
+Current:
+"Mere uploaded joining letter me joining date kya hai?"
+
+Correct:
+uploaded_document
+
+================================================================
+RULE 7 — OLD DOCUMENTS
+================================================================
+
+Document age does NOT matter.
+
+If the user uploaded a document 5 days ago,
+and it is still available/ready,
+
+it remains a valid source.
+
+Example:
+
+Five days ago:
+User uploaded XYZ.pdf
+
+Today:
+"XYZ company ki services kya hain?"
+
+Correct:
+uploaded_document
+
+Do NOT require the user to upload the document again.
+
+================================================================
+RULE 8 — MULTIPLE DOCUMENTS
+================================================================
+
+If multiple documents exist, use the current message and conversation
+to identify the relevant document.
+
+Example:
+
+Documents:
+
+1. XYZ_Company.pdf
+2. ABC_Joining_Letter.pdf
+3. Resume.pdf
+
+User:
+"XYZ company ka naam kya hai?"
+
+-> uploaded_document
+
+User:
+"ABC wali joining date kya hai?"
+
+-> uploaded_document
+
+User:
+"Mere resume me skills kya hain?"
+
+-> uploaded_document
+
+If the current question clearly identifies one document,
+do not ask for clarification.
+
+================================================================
+RULE 9 — TRUE AMBIGUITY
+================================================================
+
+Only return:
+
+"ambiguous"
+
+when BOTH sources genuinely appear equally relevant AND
+the conversation does not resolve which source the user means.
+
+Example:
+
+Uploaded document:
+"Renvora Employees.pdf"
+
+Renvora knowledge:
+Renvora employee information
+
+User:
+"Team members kaun hain?"
+
+This could genuinely refer to either source.
+
+Then:
+
+intent:
+ambiguous
+
+clarification:
+"I found relevant information in both Renvora company knowledge and
+your uploaded document 'Renvora Employees.pdf'. Which one should I use?"
+
+Do NOT use ambiguous merely because a document exists.
+
+================================================================
+RULE 10 — GENERAL QUESTIONS
+================================================================
+
+If the question is outside both sources:
+
+Example:
+
+"India ki capital kya hai?"
+
+"What is Python?"
+
+"How does gravity work?"
+
+return:
+
+"unsupported"
+
+Do NOT return:
+
+"general_knowledge"
+
+because Renvora AI is intentionally restricted to:
+
+- Renvora Company Knowledge
+- User Uploaded Documents
+
+================================================================
+RULE 11 — GREETINGS
+================================================================
+
+Greetings such as:
+
+"Hi"
+"Hello"
+"Hey"
+"Good morning"
+
+should be classified as:
+
+"unsupported"
+
+The final AI layer may respond naturally to a greeting,
+but it must NOT retrieve unrelated general knowledge.
+
+================================================================
+RULE 12 — DO NOT INVENT
+================================================================
+
+Never assume information exists in a source.
+
+Never classify a question as Renvora just because
+Renvora is the name of the application.
+
+Never classify every question as uploaded_document
+just because a document exists.
+
+================================================================
+OUTPUT
+================================================================
+
+Return JSON only:
+
+{{
+    "intent": "",
+    "confidence": 0.0,
+    "clarification_question": "",
+    "suggested_sources": []
+}}
+
+Valid intent values:
+
+"renvora_knowledge"
+"uploaded_document"
+"previous_conversation"
+"ambiguous"
+"unsupported"
+
+Confidence:
+0.0 to 1.0
+
+================================================================
+CURRENT USER MESSAGE
+================================================================
+
+{message}
+"""
+
+    # =========================================================================
+    # GROQ REQUEST
+    # =========================================================================
+
     try:
-        resp = client.chat.completions.create(
+
+        response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": message},
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": message
+                },
             ],
-            temperature=0.05,
-            max_tokens=300,
-            response_format={"type": "json_object"},
+            temperature=0.0,
+            max_tokens=350,
+            response_format={
+                "type": "json_object"
+            },
         )
-        raw = resp.choices[0].message.content.strip()
+
+        raw = (
+            response
+            .choices[0]
+            .message
+            .content
+            .strip()
+        )
+
         result = json.loads(raw)
 
-        # Validate and sanitize
+        # =====================================================================
+        # VALIDATION
+        # =====================================================================
+
         valid_intents = {
-            "general_knowledge", "renvora_knowledge",
-            "uploaded_document", "previous_conversation", "ambiguous"
+            "renvora_knowledge",
+            "uploaded_document",
+            "previous_conversation",
+            "ambiguous",
+            "unsupported",
         }
-        intent = result.get("intent", "general_knowledge")
+
+        intent = result.get(
+            "intent",
+            "unsupported"
+        )
+
         if intent not in valid_intents:
-            intent = "general_knowledge"
+            intent = "unsupported"
 
-        confidence = float(result.get("confidence", 1.0))
-        clarification_q = result.get("clarification_question", "")
-        suggested_sources = result.get("suggested_sources", [])
+        # ---------------------------------------------------------------------
+        # Confidence
+        # ---------------------------------------------------------------------
 
-        # Safety: if no docs uploaded, never return uploaded_document
-        if not has_uploaded_document and intent == "uploaded_document":
-            intent = "general_knowledge"
+        try:
+            confidence = float(
+                result.get(
+                    "confidence",
+                    0.0
+                )
+            )
+        except (TypeError, ValueError):
+            confidence = 0.0
 
-        # Safety: if ambiguous but no docs, resolve to renvora_knowledge
-        if intent == "ambiguous" and not has_uploaded_document:
+        confidence = max(
+            0.0,
+            min(
+                1.0,
+                confidence
+            )
+        )
+
+        # ---------------------------------------------------------------------
+        # Clarification question
+        # ---------------------------------------------------------------------
+
+        clarification_question = (
+            result.get(
+                "clarification_question",
+                ""
+            )
+        )
+
+        if not isinstance(
+            clarification_question,
+            str
+        ):
+            clarification_question = ""
+
+        # ---------------------------------------------------------------------
+        # Suggested sources
+        # ---------------------------------------------------------------------
+
+        suggested_sources = result.get(
+            "suggested_sources",
+            []
+        )
+
+        if not isinstance(
+            suggested_sources,
+            list
+        ):
+            suggested_sources = []
+
+        suggested_sources = [
+            str(source)
+            for source in suggested_sources
+            if source
+        ]
+
+        # =====================================================================
+        # SAFETY VALIDATION
+        # =====================================================================
+
+        # No uploaded documents means uploaded_document is impossible.
+        if (
+            not has_uploaded_document
+            and intent == "uploaded_document"
+        ):
+            intent = "unsupported"
+            confidence = 1.0
+            clarification_question = ""
+            suggested_sources = []
+
+        # Ambiguous requires an uploaded document.
+        if (
+            intent == "ambiguous"
+            and not has_uploaded_document
+        ):
             intent = "renvora_knowledge"
             confidence = 0.9
-            clarification_q = ""
+            clarification_question = ""
             suggested_sources = []
+
+        # General knowledge is no longer a valid factual source.
+        if intent == "general_knowledge":
+            intent = "unsupported"
+            confidence = 1.0
+            clarification_question = ""
+            suggested_sources = []
+
+        # =====================================================================
+        # RETURN
+        # =====================================================================
 
         return {
             "intent": intent,
             "confidence": confidence,
-            "clarification_question": clarification_q,
+            "clarification_question": clarification_question,
             "suggested_sources": suggested_sources,
         }
 
+    # =========================================================================
+    # ERROR HANDLING
+    # =========================================================================
+
     except Exception as e:
-        print(f"[IntentDetector] Error: {e}")
-        return _default_response()
+
+        print(
+            f"[IntentDetector] Error: {e}"
+        )
+
+        return _default_response(
+            has_uploaded_document=has_uploaded_document
+        )
 
 
-def _default_response() -> dict:
+# ============================================================================
+# DEFAULT RESPONSE
+# ============================================================================
+
+def _default_response(
+    has_uploaded_document: bool = False
+) -> dict:
+    """
+    Safe fallback.
+
+    IMPORTANT:
+    We do not fall back to general knowledge.
+
+    If documents exist, uploaded_document is a safer fallback
+    for document-related conversations.
+
+    Otherwise the AI should not invent an external source.
+    """
+
     return {
-        "intent": "general_knowledge",
-        "confidence": 1.0,
+        "intent": (
+            "uploaded_document"
+            if has_uploaded_document
+            else "unsupported"
+        ),
+        "confidence": 0.5,
         "clarification_question": "",
         "suggested_sources": [],
     }
