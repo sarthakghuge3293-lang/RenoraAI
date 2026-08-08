@@ -1,3 +1,11 @@
+# ChromaDB sqlite3 workaround for Render
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
 from app import app
 from models.user import db
 
