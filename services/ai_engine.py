@@ -1,19 +1,32 @@
 """
 services/ai_engine.py
 ─────────────────────
-Renvora AI — Think → Retrieve → Answer pipeline.
+Renvora AI Conversation Engine
 
-Pipeline for every message:
-  1. Load full conversation history from DB (last 10 exchanges)
-  2. Understand intent WITH conversation context (don't search yet)
-  3. Check if session already has a locked source (user already chose)
-  4. If locked → retrieve from locked source only → answer
-  5. If not locked → score both sources → auto-select clear winner
-  6. Only ask clarification when TWO sources are genuinely equally relevant
-  7. Build contextual prompt → call LLM → return structured response
+SOURCE RULES
+────────────
+
+1. Greetings / small talk
+   → Direct conversational response
+
+2. Renvora/company questions
+   → ONLY Renvora Knowledge Base
+
+3. Uploaded document questions
+   → ONLY user's uploaded documents
+
+4. Previous conversation
+   → Conversation history
+
+5. Previous source lock
+   → Only a hint, never an absolute lock
+
+6. Company knowledge and user documents
+   → Never mix unrelated information
 """
 
 import os
+import re
 import time
 
 from dotenv import load_dotenv
@@ -22,304 +35,1180 @@ from groq import Groq
 from services.intent_detector import detect_intent
 from services.retriever import Retriever
 
-# ──────────────────────────────────────────────────────────────────────────────
+
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
 load_dotenv()
 
-API_KEY = os.getenv("GROQ_API_KEY")
-if not API_KEY:
-    raise ValueError("GROQ_API_KEY not found in environment.")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-_groq_client = Groq(api_key=API_KEY)
 
-# Relevance distance thresholds (ChromaDB cosine distance: lower = more similar)
-HIGHLY_RELEVANT   = 0.85   # Clearly relevant — auto-use
-SOMEWHAT_RELEVANT = 1.10   # Somewhat relevant — consider
-NOT_RELEVANT      = 1.20   # Too far — ignore
+if GROQ_API_KEY:
+    groq_client = Groq(
+        api_key=GROQ_API_KEY
+    )
+else:
+    groq_client = None
+    print(
+        "[AIEngine] WARNING: GROQ_API_KEY is missing."
+    )
 
-# ──────────────────────────────────────────────────────────────────────────────
 
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+COMPANY_COLLECTION = "renvora_knowledge_v2"
+
+MAX_HISTORY = 12
+
+
+# ============================================================
+# AI ENGINE
+# ============================================================
 
 class AIEngine:
 
     def __init__(self):
-        self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.prompt_path = os.path.join(self.base_dir, "knowledge", "company_prompt.txt")
-        self.company_prompt = self._load_company_prompt()
+
+        self.base_dir = os.path.dirname(
+            os.path.dirname(
+                os.path.abspath(__file__)
+            )
+        )
+
+        self.prompt_path = os.path.join(
+            self.base_dir,
+            "knowledge",
+            "company_prompt.txt"
+        )
+
+        self.company_prompt = (
+            self._load_company_prompt()
+        )
+
         self.retriever = Retriever()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Internal helpers
-    # ──────────────────────────────────────────────────────────────────────────
+        print(
+            "[AIEngine] Renvora AI Engine initialized."
+        )
 
-    def _load_company_prompt(self) -> str:
+
+    # ========================================================
+    # LOAD COMPANY PROMPT
+    # ========================================================
+
+    def _load_company_prompt(self):
+
         try:
-            with open(self.prompt_path, "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception:
-            return (
-                "You are Renvora AI, the official AI assistant of Renvora Tech. "
-                "Always answer professionally and accurately."
+
+            with open(
+                self.prompt_path,
+                "r",
+                encoding="utf-8"
+            ) as file:
+
+                return file.read()
+
+        except Exception as e:
+
+            print(
+                f"[AIEngine] Company prompt not found: {e}"
             )
 
-    def _search_collection(self, query: str, collection_name: str,
-                           top_k: int = 5, where: dict = None) -> tuple[list, float]:
-        """
-        Search a ChromaDB collection.
-        Returns (docs: List[str], best_distance: float).
-        best_distance = 999 if nothing found.
-        """
+            return ""
+
+
+    # ========================================================
+    # SMALL TALK DETECTOR
+    # ========================================================
+
+    def _is_small_talk(
+        self,
+        message: str
+    ) -> bool:
+
+        if not message:
+            return True
+
+        text = message.strip().lower()
+
+        text = re.sub(
+            r"[!?.,]+$",
+            "",
+            text
+        ).strip()
+
+        patterns = {
+            "hi",
+            "hii",
+            "hiii",
+            "hello",
+            "hey",
+            "heyy",
+            "helo",
+            "yo",
+            "how are you",
+            "how are u",
+            "how r u",
+            "what's up",
+            "whats up",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "good night",
+            "thanks",
+            "thank you",
+            "thx",
+            "bye",
+            "goodbye",
+            "see you",
+            "see ya",
+            "ok",
+            "okay",
+            "alright",
+            "great",
+            "nice"
+        }
+
+        return text in patterns
+
+
+    # ========================================================
+    # SMALL TALK RESPONSE
+    # ========================================================
+
+    def _small_talk_reply(
+        self,
+        message: str
+    ) -> str:
+
+        text = message.strip().lower()
+
+        text = re.sub(
+            r"[!?.,]+$",
+            "",
+            text
+        ).strip()
+
+
+        if text in {
+            "hi",
+            "hii",
+            "hiii",
+            "hello",
+            "hey",
+            "heyy",
+            "helo",
+            "yo"
+        }:
+
+            return (
+                "Hi! 👋 I'm Renvora AI. "
+                "How can I help you today?"
+            )
+
+
+        if text in {
+            "how are you",
+            "how are u",
+            "how r u"
+        }:
+
+            return (
+                "I'm doing great! 😊 "
+                "What would you like to talk about?"
+            )
+
+
+        if text == "good morning":
+
+            return (
+                "Good morning! ☀️ "
+                "How can I help you today?"
+            )
+
+
+        if text == "good afternoon":
+
+            return (
+                "Good afternoon! 👋 "
+                "How can I help you today?"
+            )
+
+
+        if text == "good evening":
+
+            return (
+                "Good evening! 👋 "
+                "How can I help you today?"
+            )
+
+
+        if text == "good night":
+
+            return (
+                "Good night! 🌙 Take care!"
+            )
+
+
+        if text in {
+            "thanks",
+            "thank you",
+            "thx"
+        }:
+
+            return (
+                "You're welcome! 😊"
+            )
+
+
+        if text in {
+            "bye",
+            "goodbye",
+            "see you",
+            "see ya"
+        }:
+
+            return (
+                "Goodbye! 👋 "
+                "I'm here whenever you need me."
+            )
+
+
+        if text in {
+            "ok",
+            "okay",
+            "alright"
+        }:
+
+            return "Got it 👍"
+
+
+        return (
+            "Hi! 👋 I'm Renvora AI. "
+            "How can I help you?"
+        )
+
+
+    # ========================================================
+    # SEARCH VECTOR STORE
+    # ========================================================
+
+    def _search_collection(
+        self,
+        question: str,
+        collection_name: str,
+        top_k: int = 5,
+        where: dict = None
+    ):
+
         try:
-            results = self.retriever.search(query, collection_name, top_k=top_k, where=where)
-            if not (results and results.get("distances") and results["distances"][0]):
+
+            result = self.retriever.search(
+                question=question,
+                collection_name=collection_name,
+                top_k=top_k,
+                where=where
+            )
+
+            if not result:
                 return [], 999.0
 
-            best_dist = results["distances"][0][0]
-            docs = [
-                doc for doc, dist in zip(results["documents"][0], results["distances"][0])
-                if dist < NOT_RELEVANT
-            ]
-            return docs, best_dist
+
+            documents = (
+                result.get(
+                    "documents",
+                    [[]]
+                )
+                or [[]]
+            )
+
+
+            distances = (
+                result.get(
+                    "distances",
+                    [[]]
+                )
+                or [[]]
+            )
+
+
+            documents = (
+                documents[0]
+                if documents
+                else []
+            )
+
+
+            distances = (
+                distances[0]
+                if distances
+                else []
+            )
+
+
+            if not documents:
+                return [], 999.0
+
+
+            valid_documents = []
+
+            best_distance = 999.0
+
+
+            for index, document in enumerate(
+                documents
+            ):
+
+                if not document:
+                    continue
+
+
+                try:
+
+                    distance = float(
+                        distances[index]
+                    )
+
+                except Exception:
+
+                    distance = 999.0
+
+
+                best_distance = min(
+                    best_distance,
+                    distance
+                )
+
+
+                valid_documents.append(
+                    document
+                )
+
+
+            return (
+                valid_documents,
+                best_distance
+            )
+
+
         except Exception as e:
-            print(f"[AIEngine] Search error ({collection_name}): {e}")
+
+            print(
+                f"[AIEngine] Retrieval error "
+                f"({collection_name}): {e}"
+            )
+
             return [], 999.0
 
-    def _build_chat_history_str(self, chat_history: list) -> str:
+
+    # ========================================================
+    # BUILD CHAT HISTORY
+    # ========================================================
+
+    def _build_history(
+        self,
+        chat_history: list
+    ) -> str:
+
         if not chat_history:
-            return ""
-        lines = ["=" * 40, "RECENT CONVERSATION", "=" * 40]
-        for msg in chat_history[-10:]:
-            role = msg.get("role", "user").capitalize()
-            lines.append(f"{role}: {msg.get('content', '')}")
-        return "\n".join(lines) + "\n"
+            return "No previous conversation."
 
-    def _build_system_prompt(self, user_message: str, retrieved_context: str,
-                              source_label: str, chat_history: list) -> str:
-        history_str = self._build_chat_history_str(chat_history)
 
-        context_block = (
-            f"--- {source_label.upper()} ---\n{retrieved_context}"
-            if retrieved_context.strip()
-            else "No specific document context retrieved."
+        lines = []
+
+        for message in chat_history[
+            -MAX_HISTORY:
+        ]:
+
+            role = (
+                message.get(
+                    "role",
+                    "user"
+                )
+                .capitalize()
+            )
+
+            content = message.get(
+                "content",
+                ""
+            )
+
+
+            if content:
+
+                lines.append(
+                    f"{role}: {content}"
+                )
+
+
+        if not lines:
+            return "No previous conversation."
+
+
+        return "\n".join(lines)
+
+
+    # ========================================================
+    # BUILD SYSTEM PROMPT
+    # ========================================================
+
+    def _build_system_prompt(
+        self,
+        user_message: str,
+        retrieved_context: str,
+        source_label: str,
+        chat_history: list
+    ) -> str:
+
+        history = self._build_history(
+            chat_history
         )
 
-        return f"""{self.company_prompt}
 
-{history_str}
-========================================
-RETRIEVED CONTEXT ({source_label})
-========================================
+        # IMPORTANT:
+        # Company prompt is ONLY available
+        # when answering Renvora company questions.
 
-{context_block}
+        if source_label == (
+            "Renvora Company Knowledge"
+        ):
 
-========================================
-INSTRUCTIONS
-========================================
+            company_information = (
+                self.company_prompt
+            )
 
-You are Renvora AI — a highly intelligent assistant that converses naturally, like ChatGPT, but with access to Renvora Tech's private knowledge and the user's uploaded documents.
+        else:
 
-REASONING RULES:
-1. Read the RETRIEVED CONTEXT carefully. Determine if it genuinely answers the user's question.
-2. If the context is relevant, use it as your primary source. Do NOT ignore it.
-3. If the context is irrelevant or empty:
-   - For general questions (greetings, "what is Python?", math, etc.) → answer from your general knowledge.
-   - For questions specifically about the company or an uploaded document → say you couldn't find that information.
-4. Use the RECENT CONVERSATION to understand references like "that", "they", "previous one", "the one I mentioned", etc.
-5. NEVER hallucinate facts about the company or documents.
-6. NEVER mix information from unrelated documents.
+            company_information = (
+                "Do NOT use Renvora company "
+                "knowledge for this answer."
+            )
 
-ANSWER STYLE:
-- Be conversational and professional, like ChatGPT.
-- Answer concisely unless the user asks for details or a full explanation.
-- Do NOT say "According to the context" or "Based on the retrieved information".
-- Do NOT reveal that you searched a database unless the user asks.
-- If you used the uploaded document, you may briefly say "Based on your document, ..." if it helps the user understand the source.
 
-CURRENT USER QUESTION: {user_message}
+        return f"""
+You are Renvora AI.
+
+You are a natural conversational AI assistant.
+
+Your communication should feel natural,
+helpful, clear and human-like.
+
+Do not unnecessarily mention internal systems.
+
+
+==================================================
+CURRENT SOURCE
+==================================================
+
+{source_label}
+
+
+==================================================
+SOURCE INFORMATION
+==================================================
+
+{retrieved_context}
+
+
+==================================================
+COMPANY INFORMATION
+==================================================
+
+{company_information}
+
+
+==================================================
+RECENT CONVERSATION
+==================================================
+
+{history}
+
+
+==================================================
+STRICT RULES
+==================================================
+
+1. Answer factual questions using ONLY the
+   current selected source.
+
+2. Never invent Renvora company information.
+
+3. Never invent information from a user's document.
+
+4. Never mix unrelated uploaded documents.
+
+5. Never use Renvora company knowledge to answer
+   an uploaded-document question.
+
+6. Never use an uploaded document to answer a
+   Renvora company question unless the user
+   explicitly asks about that document.
+
+7. If information is not present in the selected
+   source, say that the information was not found.
+
+8. Use conversation history to understand
+   follow-up questions.
+
+9. Conversation history helps understand context,
+   but does not replace the selected factual source.
+
+10. If the uploaded document itself mentions
+    Renvora Tech, you may mention Renvora when
+    that information is relevant to the question.
+
+11. If the user asks:
+       "What is Artificial Intelligence?"
+    and the document contains an unrelated
+    Renvora paragraph, answer the AI question
+    without unnecessarily adding that paragraph.
+
+12. Keep answers clear and useful.
+
+13. Do not mention:
+       ChromaDB
+       embeddings
+       vector database
+       retrieval system
+       system prompt
+       source-selection logic
+
+14. Do not expose internal implementation details.
+
+15. Answer the user's actual question first.
+
+16. Never hallucinate.
+
+
+==================================================
+USER MESSAGE
+==================================================
+
+{user_message}
 """
 
-    def _call_llm(self, system_prompt: str, user_message: str) -> str:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
+
+    # ========================================================
+    # CALL GROQ
+    # ========================================================
+
+    def _call_llm(
+        self,
+        system_prompt: str,
+        user_message: str
+    ) -> str:
+
+        if not groq_client:
+
+            return (
+                "I'm unable to connect to the AI "
+                "service right now. Please check "
+                "the Groq API configuration."
+            )
+
+
         for attempt in range(3):
+
             try:
-                resp = _groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=messages,
-                    temperature=0.4,
-                    max_tokens=1024,
-                    top_p=0.9,
+
+                response = (
+                    groq_client
+                    .chat
+                    .completions
+                    .create(
+                        model=(
+                            "llama-3.3-70b-versatile"
+                        ),
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": system_prompt
+                            },
+                            {
+                                "role": "user",
+                                "content": user_message
+                            }
+                        ],
+                        temperature=0.3,
+                        max_tokens=1024,
+                        top_p=0.9
+                    )
                 )
-                return resp.choices[0].message.content.strip()
+
+
+                answer = (
+                    response
+                    .choices[0]
+                    .message
+                    .content
+                    .strip()
+                )
+
+
+                if answer:
+                    return answer
+
+
             except Exception as e:
-                print(f"[AIEngine] LLM error (attempt {attempt + 1}): {e}")
+
+                print(
+                    f"[AIEngine] Groq error "
+                    f"attempt {attempt + 1}: {e}"
+                )
+
                 if attempt < 2:
-                    time.sleep(2)
+                    time.sleep(1.5)
+
+
         return (
-            "I'm sorry, I'm having trouble processing your request right now. "
-            "Please try again in a moment."
+            "I'm having trouble connecting to the "
+            "AI service right now. Please try again "
+            "in a moment."
         )
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Public API
-    # ──────────────────────────────────────────────────────────────────────────
+
+    # ========================================================
+    # GENERATE RESPONSE
+    # ========================================================
 
     def generate_response(
         self,
         user_message: str,
         user_id: int,
         chat_history: list = None,
-        # Session state (from DB)
-        locked_source: str = None,        # "renvora_knowledge" | "uploaded_document" | "general_ai" | None
-        locked_doc_name: str = None,      # filename if locked_source == "uploaded_document"
-        # Available documents info
-        user_documents: list = None,      # List of {"id": .., "original_name": .., "file_name": ..}
+        locked_source: str = None,
+        locked_doc_name: str = None,
+        user_documents: list = None
     ) -> dict:
-        """
-        Main entry point. Returns a dict with:
-            reply          : str   — the AI's answer
-            intent         : str   — detected intent
-            source_used    : str   — human-readable source label
-            lock_source    : str|None — if set, caller should lock session to this source
-            lock_doc_name  : str|None — doc filename to lock to
-            suggested_sources : list  — source options if clarification needed
-            needs_clarification : bool
-        """
+
         if chat_history is None:
             chat_history = []
 
-        user_collection = f"user_{user_id}"
-        has_user_docs = bool(user_documents)
-        doc_names = [d.get("original_name", d.get("file_name", "")) for d in (user_documents or [])]
 
-        # ── PHASE 1: UNDERSTAND INTENT ─────────────────────────────────────
-        # Think before searching. Pass doc names so the LLM knows what's available.
-        intent_data = detect_intent(
-            message=user_message,
-            has_uploaded_document=has_user_docs,
-            chat_history=chat_history,
-            document_names=doc_names,
-            locked_source=locked_source,
+        if user_documents is None:
+            user_documents = []
+
+
+        user_message = (
+            user_message
+            or ""
+        ).strip()
+
+
+        # ====================================================
+        # EMPTY MESSAGE
+        # ====================================================
+
+        if not user_message:
+
+            return {
+                "reply": (
+                    "I'm here. "
+                    "What would you like to ask?"
+                ),
+                "intent": "general_knowledge",
+                "source_used": "Conversation",
+                "lock_source": None,
+                "lock_doc_name": None,
+                "suggested_sources": [],
+                "needs_clarification": False
+            }
+
+
+        # ====================================================
+        # SMALL TALK
+        # ====================================================
+
+        if self._is_small_talk(
+            user_message
+        ):
+
+            return {
+                "reply": self._small_talk_reply(
+                    user_message
+                ),
+                "intent": "general_knowledge",
+                "source_used": "Conversation",
+                "lock_source": None,
+                "lock_doc_name": None,
+                "suggested_sources": [],
+                "needs_clarification": False
+            }
+
+
+        # ====================================================
+        # DOCUMENT INFORMATION
+        # ====================================================
+
+        has_documents = bool(
+            user_documents
         )
-        intent_type = intent_data.get("intent", "general_knowledge")
-        confidence = float(intent_data.get("confidence", 1.0))
-        clarification_q = intent_data.get("clarification_question", "")
-        suggested_sources = intent_data.get("suggested_sources", [])
 
-        # ── PHASE 2: RESOLVE SOURCE ────────────────────────────────────────
 
-        # 2a. If session already has a locked source — respect it, skip clarification
-        if locked_source:
-            if locked_source == "general_ai":
-                intent_type = "general_knowledge"
-            elif locked_source == "uploaded_document":
-                intent_type = "uploaded_document"
-            elif locked_source == "renvora_knowledge":
-                intent_type = "renvora_knowledge"
+        document_names = []
 
-        # 2b. If intent is ambiguous, use vector similarity to auto-decide
-        if intent_type == "ambiguous" and not locked_source:
-            renvora_docs, renvora_dist = self._search_collection(user_message, "renvora_knowledge_v2")
-            user_docs_result, user_dist = (
-                self._search_collection(user_message, user_collection)
-                if has_user_docs else ([], 999.0)
+        for document in user_documents:
+
+            name = (
+                document.get(
+                    "original_name"
+                )
+                or document.get(
+                    "file_name"
+                )
             )
 
-            renvora_relevant = renvora_dist < HIGHLY_RELEVANT
-            user_relevant    = user_dist    < HIGHLY_RELEVANT
+            if name:
 
-            if renvora_relevant and not user_relevant:
-                # Clear winner: Renvora knowledge
-                intent_type = "renvora_knowledge"
-            elif user_relevant and not renvora_relevant:
-                # Clear winner: uploaded document
-                intent_type = "uploaded_document"
-            elif renvora_relevant and user_relevant:
-                # Both highly relevant — genuinely ambiguous, ask user
-                # Build nice source options for Flutter UI
-                options = ["Renvora Company Knowledge"]
-                for doc in (user_documents or []):
-                    options.append(f"Uploaded: {doc.get('original_name', doc.get('file_name'))}")
-                return {
-                    "reply": clarification_q or (
-                        "I found information in multiple sources. Which one would you like me to use?\n\n"
-                        + "\n".join(f"{i+1}. {o}" for i, o in enumerate(options))
+                document_names.append(
+                    name
+                )
+
+
+        # ====================================================
+        # DETECT CURRENT INTENT
+        # ====================================================
+
+        try:
+
+            intent_data = detect_intent(
+
+                message=user_message,
+
+                has_uploaded_document=(
+                    has_documents
+                ),
+
+                chat_history=(
+                    chat_history
+                ),
+
+                document_names=(
+                    document_names
+                ),
+
+                locked_source=(
+                    locked_source
+                )
+            )
+
+
+        except Exception as e:
+
+            print(
+                f"[AIEngine] Intent detector error: {e}"
+            )
+
+            intent_data = {
+                "intent": "general_knowledge",
+                "confidence": 0.5,
+                "clarification_question": "",
+                "suggested_sources": []
+            }
+
+
+        intent = intent_data.get(
+            "intent",
+            "general_knowledge"
+        )
+
+
+        clarification_question = (
+            intent_data.get(
+                "clarification_question",
+                ""
+            )
+        )
+
+
+        suggested_sources = (
+            intent_data.get(
+                "suggested_sources",
+                []
+            )
+        )
+
+
+        # ====================================================
+        # AMBIGUOUS
+        # ====================================================
+
+        if intent == "ambiguous":
+
+            options = [
+                "Renvora Company Knowledge"
+            ]
+
+
+            for document in user_documents:
+
+                name = (
+                    document.get(
+                        "original_name"
+                    )
+                    or document.get(
+                        "file_name"
+                    )
+                    or "Uploaded Document"
+                )
+
+                options.append(
+                    f"Uploaded: {name}"
+                )
+
+
+            return {
+                "reply": (
+                    clarification_question
+                    or
+                    "I found relevant information "
+                    "in more than one source. "
+                    "Which source would you like "
+                    "me to use?"
+                ),
+                "intent": "ambiguous",
+                "source_used": "Multiple Sources",
+                "lock_source": None,
+                "lock_doc_name": None,
+                "suggested_sources": options,
+                "needs_clarification": True
+            }
+
+
+        # ====================================================
+        # RENVORA KNOWLEDGE
+        # ====================================================
+
+        if intent == "renvora_knowledge":
+
+            docs, distance = (
+                self._search_collection(
+                    question=user_message,
+                    collection_name=(
+                        COMPANY_COLLECTION
                     ),
-                    "intent": "ambiguous",
-                    "source_used": "None",
+                    top_k=5
+                )
+            )
+
+
+            if not docs:
+
+                return {
+                    "reply": (
+                        "I don't have that information "
+                        "in the Renvora company knowledge "
+                        "available to me right now."
+                    ),
+                    "intent": (
+                        "renvora_knowledge"
+                    ),
+                    "source_used": (
+                        "Renvora Company Knowledge"
+                    ),
+                    "lock_source": (
+                        "renvora_knowledge"
+                    ),
+                    "lock_doc_name": None,
+                    "suggested_sources": [],
+                    "needs_clarification": False
+                }
+
+
+            context = "\n\n".join(
+                docs[:5]
+            )
+
+
+            source_label = (
+                "Renvora Company Knowledge"
+            )
+
+
+            prompt = self._build_system_prompt(
+                user_message=user_message,
+                retrieved_context=context,
+                source_label=source_label,
+                chat_history=chat_history
+            )
+
+
+            reply = self._call_llm(
+                prompt,
+                user_message
+            )
+
+
+            return {
+                "reply": reply,
+                "intent": (
+                    "renvora_knowledge"
+                ),
+                "source_used": source_label,
+                "lock_source": (
+                    "renvora_knowledge"
+                ),
+                "lock_doc_name": None,
+                "suggested_sources": [],
+                "needs_clarification": False
+            }
+
+
+        # ====================================================
+        # UPLOADED DOCUMENT
+        # ====================================================
+
+        if intent == "uploaded_document":
+
+            if not has_documents:
+
+                return {
+                    "reply": (
+                        "I don't see any uploaded "
+                        "document available to answer "
+                        "that question. Please upload "
+                        "a document first."
+                    ),
+                    "intent": (
+                        "uploaded_document"
+                    ),
+                    "source_used": (
+                        "Uploaded Document"
+                    ),
                     "lock_source": None,
                     "lock_doc_name": None,
-                    "suggested_sources": options,
-                    "needs_clarification": True,
+                    "suggested_sources": [],
+                    "needs_clarification": False
                 }
-            else:
-                # Neither source has strong signal — fall back to general knowledge
-                intent_type = "general_knowledge"
 
-        # 2c. If low-confidence but NOT ambiguous intent — trust the LLM intent,
-        #     don't over-ask for clarification
-        # (removed the old confidence < 0.90 → ask pattern)
 
-        # ── PHASE 3: RETRIEVE (only for the decided source) ───────────────
-        retrieved_context = ""
-        source_label = "General AI Knowledge"
-        new_lock_source = None
-        new_lock_doc_name = None
+            # ------------------------------------------------
+            # If a specific document is locked, try it first.
+            # ------------------------------------------------
 
-        if intent_type == "renvora_knowledge":
-            docs, _ = self._search_collection(user_message, "renvora_knowledge_v2")
-            if docs:
-                retrieved_context = "\n\n".join(docs)
-                source_label = "Renvora Company Knowledge"
-            else:
-                source_label = "Renvora Company Knowledge"
-            new_lock_source = "renvora_knowledge"
+            where = None
 
-        elif intent_type == "uploaded_document":
-            # If a specific doc is locked, filter by it
-            where = {"pdf_name": locked_doc_name} if locked_doc_name else None
-            docs, _ = self._search_collection(user_message, user_collection, where=where)
-            if docs:
-                retrieved_context = "\n\n".join(docs)
-                # Build source label with file name
-                if locked_doc_name:
-                    source_label = f"Uploaded Document: {locked_doc_name}"
-                elif doc_names:
-                    source_label = f"Uploaded Document: {doc_names[0]}" if len(doc_names) == 1 else "Uploaded Documents"
-                else:
-                    source_label = "Uploaded Document"
-            else:
-                source_label = "Uploaded Document (no relevant content found)"
-            new_lock_source = "uploaded_document"
-            new_lock_doc_name = locked_doc_name
+            if locked_doc_name:
 
-        elif intent_type == "previous_conversation":
-            # Use chat history only; no retrieval needed
-            source_label = "Conversation History"
-            # Don't lock — it's a reference question, next message may need different source
+                where = {
+                    "pdf_name": (
+                        locked_doc_name
+                    )
+                }
 
-        else:
-            # general_knowledge — LLM answers from its training
-            source_label = "General AI Knowledge"
-            new_lock_source = None  # Don't lock for general queries
 
-        # ── PHASE 4: GENERATE ─────────────────────────────────────────────
-        system_prompt = self._build_system_prompt(
-            user_message, retrieved_context, source_label, chat_history
+            docs, distance = (
+                self._search_collection(
+                    question=user_message,
+                    collection_name=(
+                        f"user_{user_id}"
+                    ),
+                    top_k=5,
+                    where=where
+                )
+            )
+
+
+            # ------------------------------------------------
+            # If old document filter fails,
+            # search all user's documents.
+            # ------------------------------------------------
+
+            if not docs and locked_doc_name:
+
+                docs, distance = (
+                    self._search_collection(
+                        question=user_message,
+                        collection_name=(
+                            f"user_{user_id}"
+                        ),
+                        top_k=5,
+                        where=None
+                    )
+                )
+
+
+            if not docs:
+
+                return {
+                    "reply": (
+                        "I couldn't find the answer "
+                        "to that question in your "
+                        "uploaded documents."
+                    ),
+                    "intent": (
+                        "uploaded_document"
+                    ),
+                    "source_used": (
+                        "Uploaded Document"
+                    ),
+                    "lock_source": (
+                        "uploaded_document"
+                    ),
+                    "lock_doc_name": (
+                        locked_doc_name
+                    ),
+                    "suggested_sources": [],
+                    "needs_clarification": False
+                }
+
+
+            context = "\n\n".join(
+                docs[:5]
+            )
+
+
+            source_label = (
+                "Uploaded Document"
+            )
+
+
+            if locked_doc_name:
+
+                source_label = (
+                    "Uploaded Document: "
+                    f"{locked_doc_name}"
+                )
+
+
+            prompt = self._build_system_prompt(
+                user_message=user_message,
+                retrieved_context=context,
+                source_label=source_label,
+                chat_history=chat_history
+            )
+
+
+            reply = self._call_llm(
+                prompt,
+                user_message
+            )
+
+
+            return {
+                "reply": reply,
+                "intent": (
+                    "uploaded_document"
+                ),
+                "source_used": source_label,
+                "lock_source": (
+                    "uploaded_document"
+                ),
+                "lock_doc_name": (
+                    locked_doc_name
+                ),
+                "suggested_sources": [],
+                "needs_clarification": False
+            }
+
+
+        # ====================================================
+        # PREVIOUS CONVERSATION
+        # ====================================================
+
+        if intent == "previous_conversation":
+
+            if not chat_history:
+
+                return {
+                    "reply": (
+                        "I don't have enough previous "
+                        "conversation context to answer "
+                        "that."
+                    ),
+                    "intent": (
+                        "previous_conversation"
+                    ),
+                    "source_used": (
+                        "Conversation History"
+                    ),
+                    "lock_source": None,
+                    "lock_doc_name": None,
+                    "suggested_sources": [],
+                    "needs_clarification": False
+                }
+
+
+            context = self._build_history(
+                chat_history
+            )
+
+
+            source_label = (
+                "Conversation History"
+            )
+
+
+            prompt = self._build_system_prompt(
+                user_message=user_message,
+                retrieved_context=context,
+                source_label=source_label,
+                chat_history=chat_history
+            )
+
+
+            reply = self._call_llm(
+                prompt,
+                user_message
+            )
+
+
+            return {
+                "reply": reply,
+                "intent": (
+                    "previous_conversation"
+                ),
+                "source_used": source_label,
+                "lock_source": None,
+                "lock_doc_name": None,
+                "suggested_sources": [],
+                "needs_clarification": False
+            }
+
+
+        # ====================================================
+        # GENERAL CONVERSATION
+        # ====================================================
+
+        source_label = (
+            "General Conversation"
         )
-        reply = self._call_llm(system_prompt, user_message)
+
+
+        prompt = self._build_system_prompt(
+            user_message=user_message,
+            retrieved_context=(
+                "No external factual source "
+                "is required for this message."
+            ),
+            source_label=source_label,
+            chat_history=chat_history
+        )
+
+
+        reply = self._call_llm(
+            prompt,
+            user_message
+        )
+
 
         return {
             "reply": reply,
-            "intent": intent_type,
+            "intent": "general_knowledge",
             "source_used": source_label,
-            "lock_source": new_lock_source,
-            "lock_doc_name": new_lock_doc_name,
+            "lock_source": None,
+            "lock_doc_name": None,
             "suggested_sources": [],
-            "needs_clarification": False,
+            "needs_clarification": False
         }
 
 
-# ── Singleton ──────────────────────────────────────────────────────────────────
+# ============================================================
+# SINGLETON
+# ============================================================
+
 ai_engine = AIEngine()
