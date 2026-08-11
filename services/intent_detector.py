@@ -1,29 +1,34 @@
 """
-services/intent_detector.py
-────────────────────────────
+Renvora AI Conversation-Aware Intent Detector
 
-Renvora AI Conversation-Aware Intent Detector.
+This file detects the source/intent of the CURRENT user message.
 
-IMPORTANT:
-This file ONLY detects the intent/source of the CURRENT
-user message.
+Supported intents:
+    - renvora_knowledge
+    - uploaded_document
+    - previous_conversation
+    - general_knowledge
+    - ambiguous
 
-It does NOT import AIEngine.
-It does NOT call ai_engine.generate_response().
+Important:
+    If a user has an uploaded document and the current question
+    is not explicitly about Renvora/company knowledge, the uploaded
+    document is preferred.
 
-Flow:
+Example:
 
-    Current message
-          +
-    Conversation history
-          +
-    Previous source
-          ↓
-    Intent Detection
-          ↓
-    Renvora / Uploaded Document / General / Conversation
+    User uploads:
+        Renvora_Test_5MB.pdf
+
+    User:
+        What is SPECIAL_CODE?
+
+    Result:
+        uploaded_document
+
+This allows the RAG/retriever pipeline to search the user's
+uploaded document instead of falling back to general conversation.
 """
-
 
 import os
 import json
@@ -52,17 +57,14 @@ def _get_client():
     """
 
     if not GROQ_API_KEY:
+        print("[IntentDetector] GROQ_API_KEY not configured.")
         return None
 
     try:
-        return Groq(
-            api_key=GROQ_API_KEY
-        )
+        return Groq(api_key=GROQ_API_KEY)
 
     except Exception as e:
-        print(
-            f"[IntentDetector] Client error: {e}"
-        )
+        print(f"[IntentDetector] Client error: {e}")
         return None
 
 
@@ -89,7 +91,7 @@ def _default_response():
 
 def _normalize(text):
     """
-    Normalize user text for keyword matching.
+    Normalize text for matching.
     """
 
     if not text:
@@ -97,11 +99,7 @@ def _normalize(text):
 
     text = str(text).lower().strip()
 
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    )
+    text = re.sub(r"\s+", " ", text)
 
     return text
 
@@ -117,9 +115,7 @@ def _is_small_talk(message):
 
     text = _normalize(message)
 
-    text = text.rstrip(
-        "!?., "
-    )
+    text = text.rstrip("!?., ")
 
     small_talk = {
         "hi",
@@ -317,7 +313,6 @@ def _has_explicit_document_reference(message):
     text = _normalize(message)
 
     for keyword in DOCUMENT_KEYWORDS:
-
         if keyword in text:
             return True
 
@@ -337,11 +332,9 @@ def _has_explicit_company_reference(message):
     text = _normalize(message)
 
     for keyword in COMPANY_KEYWORDS:
-
         if keyword in text:
             return True
 
-    # Common company phrasing
     company_patterns = [
         "your company",
         "your services",
@@ -355,10 +348,11 @@ def _has_explicit_company_reference(message):
         "company director",
         "company ceo",
         "company founder",
+        "company team",
+        "company projects",
     ]
 
     for pattern in company_patterns:
-
         if pattern in text:
             return True
 
@@ -371,13 +365,12 @@ def _has_explicit_company_reference(message):
 
 def _has_company_topic(message):
     """
-    Detect whether message contains a company-related topic.
+    Detect company-related topic.
     """
 
     text = _normalize(message)
 
     for keyword in COMPANY_TOPIC_WORDS:
-
         if keyword in text:
             return True
 
@@ -397,15 +390,11 @@ def _is_company_short_question(message):
         ceo
         founder
         team
-
-    These need conversation context.
     """
 
     text = _normalize(message)
 
-    text = text.rstrip(
-        "!?., "
-    )
+    text = text.rstrip("!?., ")
 
     return text in COMPANY_SHORT_WORDS
 
@@ -447,13 +436,13 @@ def _is_follow_up_question(message):
     if text in followups:
         return True
 
-    if (
-        text.startswith("what about ")
-        or
-        text.startswith("tell me more")
-        or
-        text.startswith("explain ")
-    ):
+    if text.startswith("what about "):
+        return True
+
+    if text.startswith("tell me more"):
+        return True
+
+    if text.startswith("explain "):
         return True
 
     return False
@@ -473,64 +462,44 @@ def _build_history(chat_history):
 
     lines = []
 
-    # Last 12 messages
     recent_messages = chat_history[-12:]
 
     for message in recent_messages:
 
-        if not isinstance(
-            message,
-            dict
-        ):
+        if not isinstance(message, dict):
             continue
 
-        role = message.get(
-            "role",
-            "user"
-        )
+        role = message.get("role", "user")
 
-        content = message.get(
-            "content",
-            ""
-        )
+        content = message.get("content", "")
 
         if not content:
             continue
 
-        role = str(
-            role
-        ).capitalize()
+        role = str(role).capitalize()
 
-        lines.append(
-            f"{role}: {content}"
-        )
+        lines.append(f"{role}: {content}")
 
     if not lines:
         return "No previous conversation."
 
-    return "\n".join(
-        lines
-    )
+    return "\n".join(lines)
 
 
 # ============================================================
 # FIND PREVIOUS SOURCE
 # ============================================================
 
-def _infer_previous_source(
-    chat_history,
-    locked_source=None
-):
+def _infer_previous_source(chat_history, locked_source=None):
     """
-    Infer the previous conversational source.
+    Infer previous conversational source.
 
     locked_source is only a hint.
     """
 
     if locked_source:
-        normalized = _normalize(
-            locked_source
-        )
+
+        normalized = _normalize(locked_source)
 
         if "uploaded" in normalized:
             return "uploaded_document"
@@ -544,35 +513,20 @@ def _infer_previous_source(
     if not chat_history:
         return None
 
-    # Inspect recent messages backwards
-    for message in reversed(
-        chat_history[-12:]
-    ):
+    for message in reversed(chat_history[-12:]):
 
-        if not isinstance(
-            message,
-            dict
-        ):
+        if not isinstance(message, dict):
             continue
 
-        content = message.get(
-            "content",
-            ""
-        )
+        content = message.get("content", "")
 
         if not content:
             continue
 
-        # Explicit Renvora reference
-        if _has_explicit_company_reference(
-            content
-        ):
+        if _has_explicit_company_reference(content):
             return "renvora_knowledge"
 
-        # Explicit document reference
-        if _has_explicit_document_reference(
-            content
-        ):
+        if _has_explicit_document_reference(content):
             return "uploaded_document"
 
     return None
@@ -582,60 +536,44 @@ def _infer_previous_source(
 # DETECT COMPANY CONTEXT IN HISTORY
 # ============================================================
 
-def _history_has_company_context(
-    chat_history
-):
+def _history_has_company_context(chat_history):
     """
-    Determine whether recent conversation is
-    clearly about Renvora.
+    Determine whether recent conversation is clearly
+    about Renvora/company.
     """
 
     if not chat_history:
         return False
 
-    # Inspect last 8 messages
-    for message in reversed(
-        chat_history[-8:]
-    ):
+    for message in reversed(chat_history[-8:]):
 
-        if not isinstance(
-            message,
-            dict
-        ):
+        if not isinstance(message, dict):
             continue
 
-        content = message.get(
-            "content",
-            ""
-        )
+        content = message.get("content", "")
 
         if not content:
             continue
 
-        text = _normalize(
-            content
-        )
+        text = _normalize(content)
 
-        # Explicit Renvora
         if "renvora" in text:
             return True
 
-        # Company-related questions
-        if any(
-            keyword in text
-            for keyword in [
-                "company services",
-                "company director",
-                "company ceo",
-                "company founder",
-                "your services",
-                "your company",
-                "your director",
-                "your ceo",
-                "your founder",
-                "renvora tech",
-            ]
-        ):
+        company_patterns = [
+            "company services",
+            "company director",
+            "company ceo",
+            "company founder",
+            "your services",
+            "your company",
+            "your director",
+            "your ceo",
+            "your founder",
+            "renvora tech",
+        ]
+
+        if any(pattern in text for pattern in company_patterns):
             return True
 
     return False
@@ -645,38 +583,26 @@ def _history_has_company_context(
 # DETECT DOCUMENT CONTEXT IN HISTORY
 # ============================================================
 
-def _history_has_document_context(
-    chat_history
-):
+def _history_has_document_context(chat_history):
     """
-    Determine whether recent conversation is
-    clearly about an uploaded document.
+    Determine whether recent conversation is clearly
+    about an uploaded document.
     """
 
     if not chat_history:
         return False
 
-    for message in reversed(
-        chat_history[-8:]
-    ):
+    for message in reversed(chat_history[-8:]):
 
-        if not isinstance(
-            message,
-            dict
-        ):
+        if not isinstance(message, dict):
             continue
 
-        content = message.get(
-            "content",
-            ""
-        )
+        content = message.get("content", "")
 
         if not content:
             continue
 
-        if _has_explicit_document_reference(
-            content
-        ):
+        if _has_explicit_document_reference(content):
             return True
 
     return False
@@ -690,7 +616,7 @@ def _deterministic_intent(
     message,
     has_uploaded_document,
     chat_history,
-    locked_source
+    locked_source,
 ):
     """
     Resolve obvious cases BEFORE calling the LLM.
@@ -699,150 +625,121 @@ def _deterministic_intent(
         intent or None
     """
 
-    text = _normalize(
-        message
-    )
+    text = _normalize(message)
 
     # --------------------------------------------------------
     # 1. Small talk
     # --------------------------------------------------------
 
-    if _is_small_talk(
-        message
-    ):
+    if _is_small_talk(message):
         return "general_knowledge"
-
 
     # --------------------------------------------------------
     # 2. Explicit document reference
-    #
-    # CURRENT MESSAGE HAS PRIORITY.
     # --------------------------------------------------------
 
-    if _has_explicit_document_reference(
-        message
-    ):
+    if _has_explicit_document_reference(message):
 
         if has_uploaded_document:
             return "uploaded_document"
 
         return "general_knowledge"
 
-
     # --------------------------------------------------------
     # 3. Explicit Renvora reference
-    #
-    # CURRENT MESSAGE HAS PRIORITY.
     # --------------------------------------------------------
 
-    if _has_explicit_company_reference(
-        message
-    ):
-
+    if _has_explicit_company_reference(message):
         return "renvora_knowledge"
 
-
     # --------------------------------------------------------
-    # 4. "Renvora services" type messages
+    # 4. Renvora topic
     # --------------------------------------------------------
 
-    if (
-        "renvora" in text
-        and _has_company_topic(message)
-    ):
-
+    if "renvora" in text and _has_company_topic(message):
         return "renvora_knowledge"
-
 
     # --------------------------------------------------------
     # 5. Short company follow-up
-    #
-    # Example:
-    #
-    # User: Renvora services?
-    # AI: ...
-    # User: director
-    #
-    # → Renvora
     # --------------------------------------------------------
 
-    if _is_company_short_question(
-        message
-    ):
+    if _is_company_short_question(message):
 
-        if _history_has_company_context(
-            chat_history
-        ):
-
+        if _history_has_company_context(chat_history):
             return "renvora_knowledge"
 
-        if (
-            locked_source
-            and
-            "renvora"
-            in _normalize(
-                locked_source
-            )
-        ):
-
+        if locked_source and "renvora" in _normalize(locked_source):
             return "renvora_knowledge"
 
+        # If a PDF is active, a short word such as
+        # "director" should NOT automatically force company
+        # knowledge unless the conversation is clearly about Renvora.
+        if has_uploaded_document:
+            return "uploaded_document"
 
-        # Without context, let LLM decide.
         return None
-
 
     # --------------------------------------------------------
     # 6. Conversational follow-up
     # --------------------------------------------------------
 
-    if _is_follow_up_question(
-        message
-    ):
+    if _is_follow_up_question(message):
 
-        previous_source = (
-            _infer_previous_source(
-                chat_history,
-                locked_source
-            )
+        previous_source = _infer_previous_source(
+            chat_history,
+            locked_source,
         )
 
         if previous_source:
-
             return previous_source
 
-        if _history_has_document_context(
-            chat_history
-        ) and has_uploaded_document:
-
+        if (
+            _history_has_document_context(chat_history)
+            and has_uploaded_document
+        ):
             return "uploaded_document"
 
-        if _history_has_company_context(
-            chat_history
-        ):
-
+        if _history_has_company_context(chat_history):
             return "renvora_knowledge"
 
         return None
 
-
     # --------------------------------------------------------
-    # 7. Topic + company context
+    # 7. Company topic + company context
     # --------------------------------------------------------
 
-    if _has_company_topic(
-        message
-    ):
+    if _has_company_topic(message):
 
-        if _history_has_company_context(
-            chat_history
-        ):
-
+        if _history_has_company_context(chat_history):
             return "renvora_knowledge"
 
+    # --------------------------------------------------------
+    # 8. IMPORTANT:
+    #
+    # ACTIVE UPLOADED DOCUMENT DEFAULT
+    #
+    # If a user has an uploaded document and the current
+    # question is not explicitly about Renvora/company,
+    # search the uploaded document.
+    #
+    # This fixes questions like:
+    #
+    #   What is SPECIAL_CODE?
+    #   What is TEST_NUMBER?
+    #   Who is the director?
+    #   What is the secret sentence?
+    #
+    # when those answers are inside the uploaded PDF.
+    # --------------------------------------------------------
+
+    if has_uploaded_document:
+
+        if not _has_explicit_company_reference(message):
+
+            return "uploaded_document"
 
     # --------------------------------------------------------
-    # Nothing obvious.
+    # 9. Nothing obvious.
     # Let LLM understand it.
     # --------------------------------------------------------
 
@@ -862,25 +759,9 @@ def detect_intent(
 ) -> dict:
     """
     Main intent detection function.
-
-    IMPORTANT:
-
-    Current message has highest priority.
-
-    Conversation history is used to understand
-    incomplete/short/follow-up messages.
-
-    Previous source is only a hint.
     """
 
-    # --------------------------------------------------------
-    # Normalize
-    # --------------------------------------------------------
-
-    message = (
-        message
-        or ""
-    ).strip()
+    message = (message or "").strip()
 
     if chat_history is None:
         chat_history = []
@@ -888,39 +769,34 @@ def detect_intent(
     if document_names is None:
         document_names = []
 
-
     # --------------------------------------------------------
-    # Empty
+    # Empty message
     # --------------------------------------------------------
 
     if not message:
-
         return _default_response()
-
 
     # --------------------------------------------------------
     # Deterministic routing
     # --------------------------------------------------------
 
-    deterministic_intent = (
-        _deterministic_intent(
-            message=message,
-            has_uploaded_document=(
-                has_uploaded_document
-            ),
-            chat_history=chat_history,
-            locked_source=locked_source
-        )
+    deterministic_intent = _deterministic_intent(
+        message=message,
+        has_uploaded_document=has_uploaded_document,
+        chat_history=chat_history,
+        locked_source=locked_source,
     )
 
-
-    if deterministic_intent:
+    if deterministic_intent and not (
+        has_uploaded_document
+        and deterministic_intent == "general_knowledge"
+    ):
 
         print(
             "[IntentDetector] Deterministic:",
             deterministic_intent,
             "|",
-            message
+            message,
         )
 
         return {
@@ -930,6 +806,55 @@ def detect_intent(
             "suggested_sources": [],
         }
 
+    # ========================================================
+    # ACTIVE UPLOADED DOCUMENT — HARD ROUTING
+    # ========================================================
+    #
+    # If a document is available and the current question
+    # is NOT explicitly about Renvora/company, ALWAYS use
+    # the uploaded document.
+    #
+    # This prevents Groq from incorrectly selecting
+    # general_knowledge for PDF questions.
+    # ========================================================
+
+    if has_uploaded_document:
+
+        message_lower = message.lower().strip()
+
+        company_words = [
+        "renvora",
+        "renvora tech",
+        "renvora ai",
+        "your company",
+        "company services",
+        "company director",
+        "company ceo",
+        "company founder",
+    ]
+
+    is_company_question = any(
+        word in message_lower
+        for word in company_words
+    )
+
+    if not is_company_question:
+
+            print(
+                "[IntentDetector] HARD ROUTING:",
+                "uploaded_document",
+                "|",
+                message,
+                "| documents:",
+                document_names,
+            )
+
+            return {
+                "intent": "uploaded_document",
+                "confidence": 1.0,
+                "clarification_question": "",
+                "suggested_sources": [],
+            }
 
     # ========================================================
     # BUILD DOCUMENT CONTEXT
@@ -943,26 +868,21 @@ def detect_intent(
 
             for index, name in enumerate(
                 document_names,
-                start=1
+                start=1,
             ):
-
                 document_lines.append(
                     f"{index}. {name}"
                 )
 
             document_context = (
                 "User uploaded documents:\n"
-                +
-                "\n".join(
-                    document_lines
-                )
+                + "\n".join(document_lines)
             )
 
         else:
 
             document_context = (
-                "User has uploaded at least "
-                "one document."
+                "User has uploaded at least one document."
             )
 
     else:
@@ -971,34 +891,24 @@ def detect_intent(
             "User has NOT uploaded any document."
         )
 
-
     # ========================================================
     # HISTORY
     # ========================================================
 
-    history_context = _build_history(
-        chat_history
-    )
-
+    history_context = _build_history(chat_history)
 
     # ========================================================
     # PREVIOUS SOURCE
     # ========================================================
 
-    previous_source = (
-        _infer_previous_source(
-            chat_history,
-            locked_source
-        )
+    previous_source = _infer_previous_source(
+        chat_history,
+        locked_source,
     )
-
 
     previous_source_text = (
-        previous_source
-        or
-        "unknown"
+        previous_source or "unknown"
     )
-
 
     # ========================================================
     # GROQ
@@ -1007,9 +917,7 @@ def detect_intent(
     client = _get_client()
 
     if not client:
-
         return _default_response()
-
 
     # ========================================================
     # SYSTEM PROMPT
@@ -1057,6 +965,13 @@ Examples:
 - Explain this PDF.
 - What does the uploaded file say about AI?
 - According to my document, what is machine learning?
+- What is SPECIAL_CODE?
+- What is TEST_NUMBER?
+
+IMPORTANT:
+If the user has an uploaded document and the current
+question does not explicitly mention Renvora/company,
+prefer uploaded_document.
 
 
 3. previous_conversation
@@ -1087,239 +1002,61 @@ Examples:
 
 5. ambiguous
 
-Use ONLY when the question genuinely has
-two possible factual sources and the conversation
+Use ONLY when the question genuinely has two
+possible factual sources and the conversation
 cannot resolve which source is intended.
 
 
 ============================================================
-MOST IMPORTANT RULE
+SOURCE PRIORITY
 ============================================================
 
-DO NOT treat each user message independently.
-
-Understand the CURRENT message using the
-RECENT CONVERSATION.
-
-The user may use very short messages such as:
-
-"director"
-
-"services"
-
-"team"
-
-"more"
-
-"why?"
-
-"what about it?"
-
-"and?"
-
-These messages must be interpreted using
-previous messages.
+1. Explicit current-message Renvora reference
+2. Explicit current-message document reference
+3. Active uploaded document
+4. Conversation context
+5. Previous source
+6. General knowledge
 
 
 ============================================================
-EXAMPLE 1
+IMPORTANT UPLOADED DOCUMENT RULE
 ============================================================
 
-User:
-Renvora services?
+If:
 
-Assistant:
-[answer]
+has_uploaded_document = true
 
-User:
-director
+AND the current question does NOT explicitly refer
+to Renvora/company,
 
-Correct intent:
-
-renvora_knowledge
-
-
-============================================================
-EXAMPLE 2
-============================================================
-
-User:
-Tell me about Renvora.
-
-Assistant:
-[answer]
-
-User:
-services
-
-Correct intent:
-
-renvora_knowledge
-
-
-============================================================
-EXAMPLE 3
-============================================================
-
-User:
-I uploaded an AI handbook PDF.
-
-Assistant:
-[acknowledgement]
-
-User:
-What is machine learning?
-
-Correct intent:
+classify the question as:
 
 uploaded_document
 
-IF the question is clearly about the uploaded
-document based on conversation context.
+This is especially important for short factual questions
+whose answer may exist only inside the uploaded document.
 
+Examples:
 
-============================================================
-EXAMPLE 4
-============================================================
+User uploaded PDF containing:
+SPECIAL_CODE: ABC123
 
-User:
-What is machine learning in the PDF?
+Current user message:
+What is SPECIAL_CODE?
 
-Assistant:
-[answer]
-
-User:
-What about neural networks?
-
-Correct intent:
-
+Correct:
 uploaded_document
 
 
-============================================================
-EXAMPLE 5
-============================================================
+User uploaded PDF containing:
+TEST_NUMBER: 57391
 
-User:
-Renvora services?
+Current user message:
+What is TEST_NUMBER?
 
-Assistant:
-[answer]
-
-User:
-What about the director?
-
-Correct intent:
-
-renvora_knowledge
-
-
-============================================================
-EXAMPLE 6
-============================================================
-
-Previous source:
+Correct:
 uploaded_document
-
-Current:
-
-Renvora services?
-
-Correct:
-
-renvora_knowledge
-
-
-The previous source is NOT a permanent lock.
-
-
-============================================================
-EXAMPLE 7
-============================================================
-
-Previous source:
-renvora_knowledge
-
-Current:
-
-What does my PDF say about AI?
-
-Correct:
-
-uploaded_document
-
-
-============================================================
-EXAMPLE 8
-============================================================
-
-Current:
-
-What is Artificial Intelligence?
-
-No document reference.
-No Renvora reference.
-
-Correct:
-
-general_knowledge
-
-
-============================================================
-EXAMPLE 9
-============================================================
-
-Current:
-
-director
-
-Previous conversation:
-
-User: Renvora services?
-Assistant: Renvora provides...
-
-Correct:
-
-renvora_knowledge
-
-
-============================================================
-EXAMPLE 10
-============================================================
-
-Current:
-
-services
-
-Previous conversation:
-
-User: Renvora company kya karti hai?
-Assistant: ...
-
-Correct:
-
-renvora_knowledge
-
-
-============================================================
-EXAMPLE 11
-============================================================
-
-Current:
-
-services
-
-No Renvora context.
-No document context.
-
-This could be ambiguous.
-
-Use:
-
-general_knowledge
-
-unless the conversation clearly identifies
-Renvora or a document.
 
 
 ============================================================
@@ -1351,30 +1088,6 @@ CURRENT USER MESSAGE
 
 
 ============================================================
-SOURCE PRIORITY
-============================================================
-
-Priority order:
-
-1. Explicit current-message source reference
-2. Current-message topic
-3. Conversation context
-4. Previous source
-5. General knowledge
-
-
-IMPORTANT:
-
-The CURRENT MESSAGE has priority over the
-previous source.
-
-The conversation history is used to understand
-meaning.
-
-Previous source is only a hint.
-
-
-============================================================
 OUTPUT
 ============================================================
 
@@ -1392,7 +1105,6 @@ No explanation.
 JSON only.
 """
 
-
     # ========================================================
     # GROQ REQUEST
     # ========================================================
@@ -1409,12 +1121,12 @@ JSON only.
                 messages=[
                     {
                         "role": "system",
-                        "content": system_prompt
+                        "content": system_prompt,
                     },
                     {
                         "role": "user",
-                        "content": message
-                    }
+                        "content": message,
+                    },
                 ],
 
                 temperature=0.05,
@@ -1423,10 +1135,9 @@ JSON only.
 
                 response_format={
                     "type": "json_object"
-                }
+                },
             )
         )
-
 
         raw = (
             response
@@ -1436,11 +1147,7 @@ JSON only.
             .strip()
         )
 
-
-        result = json.loads(
-            raw
-        )
-
+        result = json.loads(raw)
 
     except Exception as e:
 
@@ -1449,7 +1156,6 @@ JSON only.
         )
 
         return _default_response()
-
 
     # ========================================================
     # VALIDATE INTENT
@@ -1463,17 +1169,13 @@ JSON only.
         "ambiguous",
     }
 
-
     intent = result.get(
         "intent",
-        "general_knowledge"
+        "general_knowledge",
     )
 
-
     if intent not in valid_intents:
-
         intent = "general_knowledge"
-
 
     # ========================================================
     # NO DOCUMENT SAFETY
@@ -1483,9 +1185,24 @@ JSON only.
         intent == "uploaded_document"
         and not has_uploaded_document
     ):
-
         intent = "general_knowledge"
 
+    # ========================================================
+    # FINAL SAFETY:
+    #
+    # If a document is available and the message is not
+    # explicitly about Renvora, prefer the uploaded document.
+    # ========================================================
+
+    if (
+        has_uploaded_document
+        and not _has_explicit_company_reference(message)
+        and intent in {
+            "general_knowledge",
+            "ambiguous",
+        }
+    ):
+        intent = "uploaded_document"
 
     # ========================================================
     # CONFIDENCE
@@ -1496,7 +1213,7 @@ JSON only.
         confidence = float(
             result.get(
                 "confidence",
-                0.7
+                0.7,
             )
         )
 
@@ -1504,53 +1221,43 @@ JSON only.
 
         confidence = 0.7
 
-
     confidence = max(
         0.0,
         min(
             1.0,
-            confidence
-        )
+            confidence,
+        ),
     )
-
 
     # ========================================================
     # CLARIFICATION
     # ========================================================
 
-    clarification_question = (
-        result.get(
-            "clarification_question",
-            ""
-        )
+    clarification_question = result.get(
+        "clarification_question",
+        "",
     )
 
     if not isinstance(
         clarification_question,
-        str
+        str,
     ):
-
         clarification_question = ""
-
 
     # ========================================================
     # SUGGESTED SOURCES
     # ========================================================
 
-    suggested_sources = (
-        result.get(
-            "suggested_sources",
-            []
-        )
+    suggested_sources = result.get(
+        "suggested_sources",
+        [],
     )
 
     if not isinstance(
         suggested_sources,
-        list
+        list,
     ):
-
         suggested_sources = []
-
 
     # ========================================================
     # AMBIGUOUS SAFETY
@@ -1561,9 +1268,7 @@ JSON only.
         and not has_uploaded_document
     ):
 
-        if _has_explicit_company_reference(
-            message
-        ):
+        if _has_explicit_company_reference(message):
 
             intent = "renvora_knowledge"
 
@@ -1577,7 +1282,6 @@ JSON only.
 
         suggested_sources = []
 
-
     # ========================================================
     # NON-AMBIGUOUS CLEANUP
     # ========================================================
@@ -1588,7 +1292,6 @@ JSON only.
 
         suggested_sources = []
 
-
     # ========================================================
     # FINAL RESULT
     # ========================================================
@@ -1596,19 +1299,13 @@ JSON only.
     final_result = {
         "intent": intent,
         "confidence": confidence,
-        "clarification_question": (
-            clarification_question
-        ),
-        "suggested_sources": (
-            suggested_sources
-        ),
+        "clarification_question": clarification_question,
+        "suggested_sources": suggested_sources,
     }
-
 
     print(
         "[IntentDetector] Result:",
-        final_result
+        final_result,
     )
-
 
     return final_result
