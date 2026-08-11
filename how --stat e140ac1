@@ -1,0 +1,10 @@
+[33me140ac1[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix PDF retrieval persistence and processing
+[33mfc8c38d[m Speed up document embedding
+[33mb0dbc6e[m Fix selected PDF retrieval
+[33m5a1e17e[m Fix user PDF vector collection
+[33m903adfa[m Fix uploaded PDF intent routing
+[33m8489e3b[m Update registration page and AI improvements
+[33mbb9e311[m Update admin panel and knowledge base
+[33m5823200[m Update AI conversation and document handling
+[33mad750e1[m Fix chat session database migration
+[33m1ee8f12[m Add /migrate route for manual cloud migration

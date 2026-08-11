@@ -1,0 +1,24 @@
+[33mcommit e140ac113b8715a1c23b1497cc263c389d866261[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Renvora Deployer <deploy@renvora.local>
+Date:   Tue Aug 11 15:41:11 2026 +0530
+
+    Fix PDF retrieval persistence and processing
+
+ .../length.bin                                     | Bin [31m400[m -> [32m400[m bytes
+ .../data_level0.bin                                | Bin [31m167600[m -> [32m167600[m bytes
+ .../length.bin                                     | Bin [31m400[m -> [32m400[m bytes
+ database/chroma/chroma.sqlite3                     | Bin [31m1589248[m -> [32m1589248[m bytes
+ database/renvora.db                                | Bin [31m94208[m -> [32m102400[m bytes
+ routes/__pycache__/chat.cpython-310.pyc            | Bin [31m7228[m -> [32m7513[m bytes
+ routes/__pycache__/mobile_api.cpython-310.pyc      | Bin [31m24706[m -> [32m24706[m bytes
+ routes/__pycache__/user_pdf.cpython-310.pyc        | Bin [31m6205[m -> [32m5559[m bytes
+ routes/chat.py                                     |  25 [32m++[m[31m-[m
+ routes/user_pdf.py                                 |  63 [32m++[m[31m------[m
+ services/__pycache__/ai_engine.cpython-310.pyc     | Bin [31m11760[m -> [32m13406[m bytes
+ services/__pycache__/embeddings.cpython-310.pyc    | Bin [31m4319[m -> [32m4954[m bytes
+ .../__pycache__/intent_detector.cpython-310.pyc    | Bin [31m16561[m -> [32m14201[m bytes
+ services/embeddings.py                             |  14 [32m+[m[31m-[m
+ static/js/chat.js                                  |  38 [32m++++[m[31m-[m
+ .../Artificial_Intelligence_Handbook_Test_1.pdf    | 169 [31m---------------------[m
+ .../user_2/Sarthak_Santosh_Ghuge.pdf               | Bin [31m0[m -> [32m42066[m bytes
+ 17 files changed, 76 insertions(+), 233 deletions(-)
