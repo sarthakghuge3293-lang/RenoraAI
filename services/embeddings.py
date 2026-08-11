@@ -190,22 +190,10 @@ class EmbeddingEngine:
         chunks: list,
     ) -> list:
         """
-        Create embeddings for document chunks.
+        Create document embeddings in parallel.
 
-        Each chunk must normally contain:
-
-            {
-                "text": "..."
-            }
-
-        The resulting chunk receives:
-
-            {
-                "embedding": [...]
-            }
-
-        Failed chunks are skipped so that one bad chunk
-        doesn't stop the entire document.
+        Keeps the same output format as the old implementation,
+        but processes multiple chunks concurrently.
         """
 
         if not chunks:
@@ -215,30 +203,22 @@ class EmbeddingEngine:
             )
             return []
 
-        embedded_chunks = []
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        embedded_chunks = []
         total = len(chunks)
 
-        for index, chunk in enumerate(
-            chunks
-        ):
-
+        def embed_one(index, chunk):
             try:
-
-                if not isinstance(
-                    chunk,
-                    dict
-                ):
+                if not isinstance(chunk, dict):
                     print(
                         "[EmbeddingEngine] "
                         f"Skipping invalid chunk "
                         f"{index + 1}/{total}."
                     )
-                    continue
+                    return None
 
-                text = chunk.get(
-                    "text"
-                )
+                text = chunk.get("text")
 
                 if not text:
                     print(
@@ -246,34 +226,65 @@ class EmbeddingEngine:
                         f"Skipping empty chunk "
                         f"{index + 1}/{total}."
                     )
-                    continue
+                    return None
 
-                print(
-                    "[EmbeddingEngine] "
-                    f"Embedding chunk "
-                    f"{index + 1}/{total}..."
+                embedding = self.create_embedding(
+                    text,
+                    task_type="retrieval_document",
                 )
 
-                chunk["embedding"] = (
-                    self.create_embedding(
-                        text,
-                        task_type="retrieval_document",
-                    )
-                )
+                chunk["embedding"] = embedding
 
-                embedded_chunks.append(
-                    chunk
-                )
+                return chunk
 
             except Exception as e:
-
                 print(
                     "[EmbeddingEngine] "
-                    f"Failed to embed chunk "
+                    f"Failed chunk "
                     f"{index + 1}/{total}: {e}"
                 )
+                return None
 
-                # Continue processing remaining chunks.
+        # Keep concurrency moderate so Gemini API is not overloaded.
+        max_workers = min(5, max(1, total))
+
+        print(
+            "[EmbeddingEngine] "
+            f"Embedding {total} chunks "
+            f"using {max_workers} workers..."
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=max_workers
+        ) as executor:
+
+            futures = [
+                executor.submit(
+                    embed_one,
+                    index,
+                    chunk,
+                )
+                for index, chunk in enumerate(chunks)
+            ]
+
+            for completed, future in enumerate(
+                as_completed(futures),
+                start=1,
+            ):
+                result = future.result()
+
+                if result is not None:
+                    embedded_chunks.append(result)
+
+                if (
+                    completed % 10 == 0
+                    or completed == total
+                ):
+                    print(
+                        "[EmbeddingEngine] "
+                        f"Progress: "
+                        f"{completed}/{total}"
+                    )
 
         print(
             "[EmbeddingEngine] "
