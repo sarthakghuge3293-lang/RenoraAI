@@ -5,7 +5,6 @@ Renvora AI Conversation Engine
 
 SOURCE RULES
 ────────────
-
 1. Greetings / small talk
    → Direct conversational response
 
@@ -44,13 +43,13 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-
 if GROQ_API_KEY:
     groq_client = Groq(
         api_key=GROQ_API_KEY
     )
 else:
     groq_client = None
+
     print(
         "[AIEngine] WARNING: GROQ_API_KEY is missing."
     )
@@ -150,25 +149,32 @@ class AIEngine:
             "heyy",
             "helo",
             "yo",
+
             "how are you",
             "how are u",
             "how r u",
+
             "what's up",
             "whats up",
+
             "good morning",
             "good afternoon",
             "good evening",
             "good night",
+
             "thanks",
             "thank you",
             "thx",
+
             "bye",
             "goodbye",
             "see you",
             "see ya",
+
             "ok",
             "okay",
             "alright",
+
             "great",
             "nice"
         }
@@ -307,6 +313,22 @@ class AIEngine:
 
         try:
 
+            print(
+                "[AIEngine DEBUG] Searching collection:",
+                collection_name
+            )
+
+            print(
+                "[AIEngine DEBUG] Query:",
+                question
+            )
+
+            print(
+                "[AIEngine DEBUG] Where:",
+                where
+            )
+
+
             result = self.retriever.search(
                 question=question,
                 collection_name=collection_name,
@@ -314,7 +336,13 @@ class AIEngine:
                 where=where
             )
 
+
             if not result:
+
+                print(
+                    "[AIEngine DEBUG] Retriever returned no result."
+                )
+
                 return [], 999.0
 
 
@@ -351,6 +379,11 @@ class AIEngine:
 
 
             if not documents:
+
+                print(
+                    "[AIEngine DEBUG] No documents retrieved."
+                )
+
                 return [], 999.0
 
 
@@ -389,6 +422,18 @@ class AIEngine:
                 )
 
 
+            print(
+                "[AIEngine DEBUG] Retrieved:",
+                len(valid_documents),
+                "documents"
+            )
+
+            print(
+                "[AIEngine DEBUG] Best distance:",
+                best_distance
+            )
+
+
             return (
                 valid_documents,
                 best_distance
@@ -415,10 +460,12 @@ class AIEngine:
     ) -> str:
 
         if not chat_history:
+
             return "No previous conversation."
 
 
         lines = []
+
 
         for message in chat_history[
             -MAX_HISTORY:
@@ -431,6 +478,7 @@ class AIEngine:
                 )
                 .capitalize()
             )
+
 
             content = message.get(
                 "content",
@@ -446,6 +494,7 @@ class AIEngine:
 
 
         if not lines:
+
             return "No previous conversation."
 
 
@@ -468,10 +517,6 @@ class AIEngine:
             chat_history
         )
 
-
-        # IMPORTANT:
-        # Company prompt is ONLY available
-        # when answering Renvora company questions.
 
         if source_label == (
             "Renvora Company Knowledge"
@@ -623,6 +668,7 @@ USER MESSAGE
                         model=(
                             "llama-3.3-70b-versatile"
                         ),
+
                         messages=[
                             {
                                 "role": "system",
@@ -633,8 +679,11 @@ USER MESSAGE
                                 "content": user_message
                             }
                         ],
+
                         temperature=0.3,
+
                         max_tokens=1024,
+
                         top_p=0.9
                     )
                 )
@@ -650,6 +699,7 @@ USER MESSAGE
 
 
                 if answer:
+
                     return answer
 
 
@@ -661,6 +711,7 @@ USER MESSAGE
                 )
 
                 if attempt < 2:
+
                     time.sleep(1.5)
 
 
@@ -685,11 +736,14 @@ USER MESSAGE
         user_documents: list = None
     ) -> dict:
 
+
         if chat_history is None:
+
             chat_history = []
 
 
         if user_documents is None:
+
             user_documents = []
 
 
@@ -710,11 +764,17 @@ USER MESSAGE
                     "I'm here. "
                     "What would you like to ask?"
                 ),
+
                 "intent": "general_knowledge",
+
                 "source_used": "Conversation",
+
                 "lock_source": None,
+
                 "lock_doc_name": None,
+
                 "suggested_sources": [],
+
                 "needs_clarification": False
             }
 
@@ -731,11 +791,17 @@ USER MESSAGE
                 "reply": self._small_talk_reply(
                     user_message
                 ),
+
                 "intent": "general_knowledge",
+
                 "source_used": "Conversation",
+
                 "lock_source": None,
+
                 "lock_doc_name": None,
+
                 "suggested_sources": [],
+
                 "needs_clarification": False
             }
 
@@ -749,7 +815,57 @@ USER MESSAGE
         )
 
 
+        # ====================================================
+        # DEBUG
+        # ====================================================
+
+        print(
+            "\n"
+            "================ AI ENGINE DEBUG ================\n"
+        )
+
+        print(
+            "[AIEngine DEBUG] User ID:",
+            user_id
+        )
+
+        print(
+            "[AIEngine DEBUG] Message:",
+            user_message
+        )
+
+        print(
+            "[AIEngine DEBUG] user_documents:",
+            user_documents
+        )
+
+        print(
+            "[AIEngine DEBUG] Number of documents:",
+            len(user_documents)
+        )
+
+        print(
+            "[AIEngine DEBUG] has_documents:",
+            has_documents
+        )
+
+        print(
+            "[AIEngine DEBUG] locked_source:",
+            locked_source
+        )
+
+        print(
+            "[AIEngine DEBUG] locked_doc_name:",
+            locked_doc_name
+        )
+
+        print(
+            "=================================================\n"
+        )
+
+
         document_names = []
+
 
         for document in user_documents:
 
@@ -762,11 +878,18 @@ USER MESSAGE
                 )
             )
 
+
             if name:
 
                 document_names.append(
                     name
                 )
+
+
+        print(
+            "[AIEngine DEBUG] document_names:",
+            document_names
+        )
 
 
         # ====================================================
@@ -804,10 +927,18 @@ USER MESSAGE
             )
 
             intent_data = {
-                "intent": "general_knowledge",
-                "confidence": 0.5,
-                "clarification_question": "",
-                "suggested_sources": []
+
+                "intent":
+                    "general_knowledge",
+
+                "confidence":
+                    0.5,
+
+                "clarification_question":
+                    "",
+
+                "suggested_sources":
+                    []
             }
 
 
@@ -833,6 +964,17 @@ USER MESSAGE
         )
 
 
+        print(
+            "[AIEngine DEBUG] Intent:",
+            intent
+        )
+
+        print(
+            "[AIEngine DEBUG] Intent data:",
+            intent_data
+        )
+
+
         # ====================================================
         # AMBIGUOUS
         # ====================================================
@@ -840,7 +982,9 @@ USER MESSAGE
         if intent == "ambiguous":
 
             options = [
+
                 "Renvora Company Knowledge"
+
             ]
 
 
@@ -856,12 +1000,14 @@ USER MESSAGE
                     or "Uploaded Document"
                 )
 
+
                 options.append(
                     f"Uploaded: {name}"
                 )
 
 
             return {
+
                 "reply": (
                     clarification_question
                     or
@@ -870,12 +1016,24 @@ USER MESSAGE
                     "Which source would you like "
                     "me to use?"
                 ),
-                "intent": "ambiguous",
-                "source_used": "Multiple Sources",
-                "lock_source": None,
-                "lock_doc_name": None,
-                "suggested_sources": options,
-                "needs_clarification": True
+
+                "intent":
+                    "ambiguous",
+
+                "source_used":
+                    "Multiple Sources",
+
+                "lock_source":
+                    None,
+
+                "lock_doc_name":
+                    None,
+
+                "suggested_sources":
+                    options,
+
+                "needs_clarification":
+                    True
             }
 
 
@@ -885,37 +1043,59 @@ USER MESSAGE
 
         if intent == "renvora_knowledge":
 
+            print(
+                "[AIEngine DEBUG] Using COMPANY collection:",
+                COMPANY_COLLECTION
+            )
+
+
             docs, distance = (
                 self._search_collection(
+
                     question=user_message,
+
                     collection_name=(
                         COMPANY_COLLECTION
                     ),
+
                     top_k=5
                 )
+            )
+
+
+            print(
+                "[AIEngine DEBUG] Company distance:",
+                distance
             )
 
 
             if not docs:
 
                 return {
+
                     "reply": (
                         "I don't have that information "
                         "in the Renvora company knowledge "
                         "available to me right now."
                     ),
-                    "intent": (
-                        "renvora_knowledge"
-                    ),
-                    "source_used": (
-                        "Renvora Company Knowledge"
-                    ),
-                    "lock_source": (
-                        "renvora_knowledge"
-                    ),
-                    "lock_doc_name": None,
-                    "suggested_sources": [],
-                    "needs_clarification": False
+
+                    "intent":
+                        "renvora_knowledge",
+
+                    "source_used":
+                        "Renvora Company Knowledge",
+
+                    "lock_source":
+                        "renvora_knowledge",
+
+                    "lock_doc_name":
+                        None,
+
+                    "suggested_sources":
+                        [],
+
+                    "needs_clarification":
+                        False
                 }
 
 
@@ -930,31 +1110,47 @@ USER MESSAGE
 
 
             prompt = self._build_system_prompt(
+
                 user_message=user_message,
+
                 retrieved_context=context,
+
                 source_label=source_label,
+
                 chat_history=chat_history
             )
 
 
             reply = self._call_llm(
+
                 prompt,
+
                 user_message
             )
 
 
             return {
-                "reply": reply,
-                "intent": (
-                    "renvora_knowledge"
-                ),
-                "source_used": source_label,
-                "lock_source": (
-                    "renvora_knowledge"
-                ),
-                "lock_doc_name": None,
-                "suggested_sources": [],
-                "needs_clarification": False
+
+                "reply":
+                    reply,
+
+                "intent":
+                    "renvora_knowledge",
+
+                "source_used":
+                    source_label,
+
+                "lock_source":
+                    "renvora_knowledge",
+
+                "lock_doc_name":
+                    None,
+
+                "suggested_sources":
+                    [],
+
+                "needs_clarification":
+                    False
             }
 
 
@@ -964,98 +1160,204 @@ USER MESSAGE
 
         if intent == "uploaded_document":
 
+
+            print(
+                "[AIEngine DEBUG] Uploaded-document branch."
+            )
+
+
             if not has_documents:
 
+                print(
+                    "[AIEngine DEBUG] ERROR:"
+                    " intent is uploaded_document"
+                    " but user_documents is EMPTY."
+                )
+
+
                 return {
+
                     "reply": (
                         "I don't see any uploaded "
                         "document available to answer "
                         "that question. Please upload "
                         "a document first."
                     ),
-                    "intent": (
-                        "uploaded_document"
-                    ),
-                    "source_used": (
-                        "Uploaded Document"
-                    ),
-                    "lock_source": None,
-                    "lock_doc_name": None,
-                    "suggested_sources": [],
-                    "needs_clarification": False
+
+                    "intent":
+                        "uploaded_document",
+
+                    "source_used":
+                        "Uploaded Document",
+
+                    "lock_source":
+                        None,
+
+                    "lock_doc_name":
+                        None,
+
+                    "suggested_sources":
+                        [],
+
+                    "needs_clarification":
+                        False
                 }
 
 
             # ------------------------------------------------
-            # If a specific document is locked, try it first.
+            # USER COLLECTION
+            # ------------------------------------------------
+
+            user_collection = (
+    f"user_{user_id}_v2"
+)
+
+
+            print(
+                "[AIEngine DEBUG] User collection:",
+                user_collection
+            )
+
+
+            # ------------------------------------------------
+            # DOCUMENT FILTER
             # ------------------------------------------------
 
             where = None
 
+
             if locked_doc_name:
 
                 where = {
-                    "pdf_name": (
+
+                    "pdf_name":
                         locked_doc_name
-                    )
                 }
 
 
+                print(
+                    "[AIEngine DEBUG] PDF filter:",
+                    where
+                )
+
+            else:
+
+                print(
+                    "[AIEngine DEBUG] No PDF filter."
+                    " Searching all user documents."
+                )
+
+
+            # ------------------------------------------------
+            # SEARCH USER DOCUMENT
+            # ------------------------------------------------
+
             docs, distance = (
                 self._search_collection(
+
                     question=user_message,
+
                     collection_name=(
-                        f"user_{user_id}"
+                        user_collection
                     ),
+
                     top_k=5,
+
                     where=where
                 )
             )
 
 
+            print(
+                "[AIEngine DEBUG] Uploaded document distance:",
+                distance
+            )
+
+
+            print(
+                "[AIEngine DEBUG] Uploaded documents found:",
+                len(docs)
+            )
+
+
             # ------------------------------------------------
-            # If old document filter fails,
-            # search all user's documents.
+            # IF FILTER FAILS
+            # SEARCH ALL USER DOCUMENTS
             # ------------------------------------------------
 
             if not docs and locked_doc_name:
 
+                print(
+                    "[AIEngine DEBUG] Locked PDF search failed."
+                    " Retrying entire user collection."
+                )
+
+
                 docs, distance = (
                     self._search_collection(
+
                         question=user_message,
+
                         collection_name=(
-                            f"user_{user_id}"
+                            user_collection
                         ),
+
                         top_k=5,
+
                         where=None
                     )
                 )
 
 
+                print(
+                    "[AIEngine DEBUG] Retry distance:",
+                    distance
+                )
+
+
+                print(
+                    "[AIEngine DEBUG] Retry documents:",
+                    len(docs)
+                )
+
+
+            # ------------------------------------------------
+            # NO DOCUMENT RESULT
+            # ------------------------------------------------
+
             if not docs:
 
                 return {
+
                     "reply": (
                         "I couldn't find the answer "
                         "to that question in your "
                         "uploaded documents."
                     ),
-                    "intent": (
-                        "uploaded_document"
-                    ),
-                    "source_used": (
-                        "Uploaded Document"
-                    ),
-                    "lock_source": (
-                        "uploaded_document"
-                    ),
-                    "lock_doc_name": (
-                        locked_doc_name
-                    ),
-                    "suggested_sources": [],
-                    "needs_clarification": False
+
+                    "intent":
+                        "uploaded_document",
+
+                    "source_used":
+                        "Uploaded Document",
+
+                    "lock_source":
+                        "uploaded_document",
+
+                    "lock_doc_name":
+                        locked_doc_name,
+
+                    "suggested_sources":
+                        [],
+
+                    "needs_clarification":
+                        False
                 }
 
+
+            # ------------------------------------------------
+            # BUILD CONTEXT
+            # ------------------------------------------------
 
             context = "\n\n".join(
                 docs[:5]
@@ -1075,34 +1377,53 @@ USER MESSAGE
                 )
 
 
+            print(
+                "[AIEngine DEBUG] Sending document context to LLM."
+            )
+
+
             prompt = self._build_system_prompt(
+
                 user_message=user_message,
+
                 retrieved_context=context,
+
                 source_label=source_label,
+
                 chat_history=chat_history
             )
 
 
             reply = self._call_llm(
+
                 prompt,
+
                 user_message
             )
 
 
             return {
-                "reply": reply,
-                "intent": (
-                    "uploaded_document"
-                ),
-                "source_used": source_label,
-                "lock_source": (
-                    "uploaded_document"
-                ),
-                "lock_doc_name": (
-                    locked_doc_name
-                ),
-                "suggested_sources": [],
-                "needs_clarification": False
+
+                "reply":
+                    reply,
+
+                "intent":
+                    "uploaded_document",
+
+                "source_used":
+                    source_label,
+
+                "lock_source":
+                    "uploaded_document",
+
+                "lock_doc_name":
+                    locked_doc_name,
+
+                "suggested_sources":
+                    [],
+
+                "needs_clarification":
+                    False
             }
 
 
@@ -1115,21 +1436,30 @@ USER MESSAGE
             if not chat_history:
 
                 return {
+
                     "reply": (
                         "I don't have enough previous "
                         "conversation context to answer "
                         "that."
                     ),
-                    "intent": (
-                        "previous_conversation"
-                    ),
-                    "source_used": (
-                        "Conversation History"
-                    ),
-                    "lock_source": None,
-                    "lock_doc_name": None,
-                    "suggested_sources": [],
-                    "needs_clarification": False
+
+                    "intent":
+                        "previous_conversation",
+
+                    "source_used":
+                        "Conversation History",
+
+                    "lock_source":
+                        None,
+
+                    "lock_doc_name":
+                        None,
+
+                    "suggested_sources":
+                        [],
+
+                    "needs_clarification":
+                        False
                 }
 
 
@@ -1144,29 +1474,47 @@ USER MESSAGE
 
 
             prompt = self._build_system_prompt(
+
                 user_message=user_message,
+
                 retrieved_context=context,
+
                 source_label=source_label,
+
                 chat_history=chat_history
             )
 
 
             reply = self._call_llm(
+
                 prompt,
+
                 user_message
             )
 
 
             return {
-                "reply": reply,
-                "intent": (
-                    "previous_conversation"
-                ),
-                "source_used": source_label,
-                "lock_source": None,
-                "lock_doc_name": None,
-                "suggested_sources": [],
-                "needs_clarification": False
+
+                "reply":
+                    reply,
+
+                "intent":
+                    "previous_conversation",
+
+                "source_used":
+                    source_label,
+
+                "lock_source":
+                    None,
+
+                "lock_doc_name":
+                    None,
+
+                "suggested_sources":
+                    [],
+
+                "needs_clarification":
+                    False
             }
 
 
@@ -1180,30 +1528,50 @@ USER MESSAGE
 
 
         prompt = self._build_system_prompt(
+
             user_message=user_message,
+
             retrieved_context=(
                 "No external factual source "
                 "is required for this message."
             ),
+
             source_label=source_label,
+
             chat_history=chat_history
         )
 
 
         reply = self._call_llm(
+
             prompt,
+
             user_message
         )
 
 
         return {
-            "reply": reply,
-            "intent": "general_knowledge",
-            "source_used": source_label,
-            "lock_source": None,
-            "lock_doc_name": None,
-            "suggested_sources": [],
-            "needs_clarification": False
+
+            "reply":
+                reply,
+
+            "intent":
+                "general_knowledge",
+
+            "source_used":
+                source_label,
+
+            "lock_source":
+                None,
+
+            "lock_doc_name":
+                None,
+
+            "suggested_sources":
+                [],
+
+            "needs_clarification":
+                False
         }
 
 

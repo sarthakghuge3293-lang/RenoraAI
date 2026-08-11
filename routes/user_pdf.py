@@ -89,7 +89,7 @@ def upload_pdf():
 
         pdf.save(pdf_path)
 
-        collection_name = f"user_{user_id}"
+        collection_name = f"user_{user_id}_v2"
         ext = os.path.splitext(pdf.filename)[1].lower().replace(".", "")
         if not ext:
             ext = "unknown"
@@ -239,7 +239,7 @@ def set_active_pdf():
         # Search Across All PDFs (Clear active pdf)
         session.pop("active_pdf", None)
         # Keep active_collection as user_{user_id}
-        session["active_collection"] = f"user_{user_id}"
+        session["active_collection"] = f"user_{user_id}_v2"
         return jsonify(
             {
                 "success": True,
