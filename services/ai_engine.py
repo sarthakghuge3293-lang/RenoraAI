@@ -1285,41 +1285,7 @@ USER MESSAGE
             # SEARCH ALL USER DOCUMENTS
             # ------------------------------------------------
 
-            if not docs and locked_doc_name:
-
-                print(
-                    "[AIEngine DEBUG] Locked PDF search failed."
-                    " Retrying entire user collection."
-                )
-
-
-                docs, distance = (
-                    self._search_collection(
-
-                        question=user_message,
-
-                        collection_name=(
-                            user_collection
-                        ),
-
-                        top_k=5,
-
-                        where=None
-                    )
-                )
-
-
-                print(
-                    "[AIEngine DEBUG] Retry distance:",
-                    distance
-                )
-
-
-                print(
-                    "[AIEngine DEBUG] Retry documents:",
-                    len(docs)
-                )
-
+            
 
             # ------------------------------------------------
             # NO DOCUMENT RESULT
