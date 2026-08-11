@@ -8,6 +8,7 @@ from services.embeddings import EmbeddingEngine
 from services.vector_store import VectorStore
 from models.user import db
 from models.user_document import UserDocument
+from models.chat_session import ChatSession
 
 user_pdf = Blueprint("user_pdf", __name__)
 
@@ -117,8 +118,8 @@ def upload_pdf():
         thread.daemon = True
         thread.start()
 
-        session["active_collection"] = collection_name
-        session["active_pdf"] = filename
+        # session["active_collection"] = collection_name # no longer needed
+        # session["active_pdf"] = filename # no longer needed
 
         return jsonify({"success": True, "pdf": filename})
     except Exception as e:
@@ -215,59 +216,15 @@ def delete_document(doc_id):
         except Exception as e:
             print("Error deleting file:", e)
 
+    # Clear any active chat sessions that have locked this document
+    sessions_to_clear = ChatSession.query.filter_by(active_doc_name=doc.file_name).all()
+    for s in sessions_to_clear:
+        s.active_source = "renvora_knowledge"
+        s.active_doc_name = None
+        s.active_doc_id = None
+    
     # Delete from DB
     db.session.delete(doc)
     db.session.commit()
 
-    # If this was the active document in session, remove it
-    if session.get("active_pdf") == doc.file_name:
-        session.pop("active_pdf", None)
-
     return jsonify({"success": True, "message": "Document deleted successfully"})
-
-
-@user_pdf.route("/user/set-active-pdf", methods=["POST"])
-def set_active_pdf():
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"success": False, "message": "Unauthorized"}), 401
-
-    data = request.json or {}
-    pdf_name = data.get("pdf_name")
-
-    if not pdf_name:
-        # Search Across All PDFs (Clear active pdf)
-        session.pop("active_pdf", None)
-        # Keep active_collection as user_{user_id}
-        session["active_collection"] = f"user_{user_id}_v2"
-        return jsonify(
-            {
-                "success": True,
-                "message": "Set to Search Across All PDFs",
-                "active_pdf": None,
-            }
-        )
-
-    # Verify the document belongs to the user
-    doc = UserDocument.query.filter_by(user_id=user_id, file_name=pdf_name).first()
-    if not doc:
-        return jsonify({"success": False, "message": "Document not found"}), 404
-
-    session["active_collection"] = doc.collection_name
-    session["active_pdf"] = doc.file_name
-
-    return jsonify(
-        {
-            "success": True,
-            "message": f"Active PDF set to {pdf_name}",
-            "active_pdf": pdf_name,
-        }
-    )
-
-
-@user_pdf.route("/user/remove-pdf")
-def remove_pdf():
-    session.pop("active_collection", None)
-    session.pop("active_pdf", None)
-
-    return jsonify({"success": True})

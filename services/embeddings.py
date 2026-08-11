@@ -112,7 +112,7 @@ class EmbeddingEngine:
         # Retry transient API failures.
         # --------------------------------------------------------------
 
-        for attempt in range(3):
+        for attempt in range(5):
 
             try:
 
@@ -149,16 +149,16 @@ class EmbeddingEngine:
                 print(
                     "[EmbeddingEngine] "
                     f"Error on attempt "
-                    f"{attempt + 1}/3: {e}"
+                    f"{attempt + 1}/5: {e}"
                 )
 
-                if attempt < 2:
-                    time.sleep(2)
+                if attempt < 4:
+                    time.sleep(2 ** attempt + 1)
 
         raise RuntimeError(
             "[EmbeddingEngine] "
             "Failed to create embedding after "
-            "3 attempts."
+            "5 attempts."
         )
 
     # ======================================================================
@@ -245,8 +245,8 @@ class EmbeddingEngine:
                 )
                 return None
 
-        # Keep concurrency moderate so Gemini API is not overloaded.
-        max_workers = min(5, max(1, total))
+        # Keep concurrency moderate so Gemini API is not overloaded, but fast enough for large PDFs.
+        max_workers = min(15, max(1, total))
 
         print(
             "[EmbeddingEngine] "

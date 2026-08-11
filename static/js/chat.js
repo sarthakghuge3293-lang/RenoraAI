@@ -340,10 +340,44 @@ function setActiveDocument(pdf_name) {
         document.getElementById("searchAllDoc").classList.add("active");
     }
     
-    fetch("/user/set-active-pdf", {
+    if (!currentSessionId) {
+        // If no session exists yet, we can't lock it on the backend.
+        // We will just create a session first via a dummy chat or just let the next chat create it.
+        // For now, let's just log it or alert that they need to start a chat first, OR
+        // better yet, just start a new chat session when they click a doc if there isn't one.
+        fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: "Hello", session_id: null })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.session_id) {
+                currentSessionId = data.session_id;
+                fetchChatSessions();
+                _lockSourceBackend(pdf_name);
+            }
+        });
+        return;
+    }
+    
+    _lockSourceBackend(pdf_name);
+}
+
+function _lockSourceBackend(pdf_name) {
+    let payload = {
+        session_id: currentSessionId,
+        source: pdf_name ? "uploaded_document" : "renvora_knowledge"
+    };
+    
+    if (pdf_name) {
+        payload.doc_name = pdf_name;
+    }
+    
+    fetch("/api/chat/lock-source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdf_name: pdf_name })
+        body: JSON.stringify(payload)
     })
     .then(res => res.json())
     .then(data => {

@@ -178,6 +178,7 @@ def lock_source():
     session_id = data.get("session_id")
     source = data.get("source")
     doc_name = data.get("doc_name")
+    doc_id = data.get("doc_id")
 
     if not session_id:
         return jsonify({"success": False, "message": "session_id required"}), 400
@@ -185,12 +186,32 @@ def lock_source():
     chat_session = ChatSession.query.filter_by(id=session_id, user_id=session["user_id"]).first()
     if not chat_session:
         return jsonify({"success": False, "message": "Session not found"}), 404
+        
+    actual_doc_name = doc_name
+
+    if source == "uploaded_document":
+        document = None
+        if doc_id:
+            document = UserDocument.query.filter_by(id=doc_id, user_id=session["user_id"]).first()
+        elif doc_name:
+            document = UserDocument.query.filter(
+                UserDocument.user_id == session["user_id"],
+                db.or_(
+                    UserDocument.file_name == doc_name,
+                    UserDocument.original_name == doc_name
+                )
+            ).first()
+            
+        if document:
+            actual_doc_name = document.file_name
+        else:
+            return jsonify({"success": False, "message": "Document not found"}), 404
 
     chat_session.active_source = source
-    chat_session.active_doc_name = doc_name
+    chat_session.active_doc_name = actual_doc_name
     db.session.commit()
 
-    return jsonify({"success": True, "locked_to": source, "doc_name": doc_name})
+    return jsonify({"success": True, "locked_to": source, "doc_name": actual_doc_name})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
