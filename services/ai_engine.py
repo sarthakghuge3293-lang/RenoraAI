@@ -59,7 +59,7 @@ else:
 # CONSTANTS
 # ============================================================
 
-COMPANY_COLLECTION = "renvora_knowledge_v2"
+COMPANY_COLLECTION = "renvora_knowledge_local_v1"
 
 MAX_HISTORY = 12
 
@@ -733,6 +733,7 @@ USER MESSAGE
         chat_history: list = None,
         locked_source: str = None,
         locked_doc_name: str = None,
+        locked_doc_id: int = None,
         user_documents: list = None
     ) -> dict:
 
@@ -860,6 +861,11 @@ USER MESSAGE
         )
 
         print(
+            "[AIEngine DEBUG] locked_doc_id:",
+            locked_doc_id
+        )
+
+        print(
             "=================================================\n"
         )
 
@@ -944,34 +950,38 @@ USER MESSAGE
 
         intent = intent_data.get(
             "intent",
-            "general_knowledge"
+            "general_knowledge",
         )
 
+        print(
+            "[AIEngine DEBUG] Intent selected by detector:",
+            intent,
+        )
 
-        clarification_question = (
-            intent_data.get(
-                "clarification_question",
-                ""
+        if locked_doc_id:
+            print(
+                "[AIEngine DEBUG] Selected PDF available:",
+                locked_doc_id,
             )
+
+        clarification_question = intent_data.get(
+            "clarification_question",
+            "",
         )
 
-
-        suggested_sources = (
-            intent_data.get(
-                "suggested_sources",
-                []
-            )
+        suggested_sources = intent_data.get(
+            "suggested_sources",
+            [],
         )
-
 
         print(
             "[AIEngine DEBUG] Intent:",
-            intent
+            intent,
         )
 
         print(
             "[AIEngine DEBUG] Intent data:",
-            intent_data
+            intent_data,
         )
 
 
@@ -1209,7 +1219,7 @@ USER MESSAGE
             # ------------------------------------------------
 
             user_collection = (
-    f"user_{user_id}_v2"
+    f"user_{user_id}_local_v1"
 )
 
 
@@ -1226,7 +1236,21 @@ USER MESSAGE
             where = None
 
 
-            if locked_doc_name:
+            if locked_doc_id:
+
+                where = {
+
+                    "doc_id":
+                        locked_doc_id
+                }
+
+
+                print(
+                    "[AIEngine DEBUG] PDF filter by doc_id:",
+                    where
+                )
+                
+            elif locked_doc_name:
 
                 where = {
 
@@ -1236,23 +1260,34 @@ USER MESSAGE
 
 
                 print(
-                    "[AIEngine DEBUG] PDF filter:",
+                    "[AIEngine DEBUG] PDF filter by name:",
                     where
                 )
 
-            else:
+        else:
+            print(
+                "[AIEngine DEBUG] No locked PDF document ID."
+                " Refusing unrestricted PDF search."
+            )
 
-                print(
-                    "[AIEngine DEBUG] No PDF filter."
-                    " Searching all user documents."
-                )
+            return {
+                "reply": (
+                    "Please select an uploaded document "
+                    "before asking a document-specific question."
+                ),
+                "intent": "uploaded_document",
+                "source_used": "Uploaded Document",
+                "lock_source": "uploaded_document",
+                "lock_doc_name": None,
+                "suggested_sources": [],
+                "needs_clarification": False
+            }
 
+        # ------------------------------------------------
+        # SEARCH USER DOCUMENT
+        # ------------------------------------------------
 
-            # ------------------------------------------------
-            # SEARCH USER DOCUMENT
-            # ------------------------------------------------
-
-            docs, distance = (
+        docs, distance = (
                 self._search_collection(
 
                     question=user_message,
@@ -1268,13 +1303,13 @@ USER MESSAGE
             )
 
 
-            print(
+        print(
                 "[AIEngine DEBUG] Uploaded document distance:",
                 distance
             )
 
 
-            print(
+        print(
                 "[AIEngine DEBUG] Uploaded documents found:",
                 len(docs)
             )
@@ -1291,7 +1326,7 @@ USER MESSAGE
             # NO DOCUMENT RESULT
             # ------------------------------------------------
 
-            if not docs:
+        if not docs:
 
                 return {
 
@@ -1325,17 +1360,17 @@ USER MESSAGE
             # BUILD CONTEXT
             # ------------------------------------------------
 
-            context = "\n\n".join(
+        context = "\n\n".join(
                 docs[:5]
             )
 
 
-            source_label = (
+        source_label = (
                 "Uploaded Document"
             )
 
 
-            if locked_doc_name:
+        if locked_doc_name:
 
                 source_label = (
                     "Uploaded Document: "
@@ -1343,12 +1378,12 @@ USER MESSAGE
                 )
 
 
-            print(
+        print(
                 "[AIEngine DEBUG] Sending document context to LLM."
             )
 
 
-            prompt = self._build_system_prompt(
+        prompt = self._build_system_prompt(
 
                 user_message=user_message,
 
@@ -1360,7 +1395,7 @@ USER MESSAGE
             )
 
 
-            reply = self._call_llm(
+        reply = self._call_llm(
 
                 prompt,
 
@@ -1368,7 +1403,7 @@ USER MESSAGE
             )
 
 
-            return {
+        return {
 
                 "reply":
                     reply,

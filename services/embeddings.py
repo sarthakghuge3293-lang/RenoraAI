@@ -1,79 +1,97 @@
 """
 services/embeddings.py
 
-Gemini Embedding Engine.
+Renvora AI Local Embedding Engine
 
-Embedding rules:
+Uses:
+    sentence-transformers/all-MiniLM-L6-v2
 
-- retrieval_document -> document chunks
-- retrieval_query    -> user search/query
+Purpose:
+- Company Knowledge query embeddings
+- Company Knowledge document embeddings
+- User PDF embeddings
+- No Gemini Embedding API
+- No Gemini embedding quota / 429 dependency
+- Batch embedding for faster document processing
 
-IMPORTANT:
-Document and query embeddings intentionally use different
-Gemini task types for better semantic retrieval accuracy.
+The public interface is intentionally kept compatible with
+the existing Retriever:
+    create_embedding()
+    create_query_embedding()
+    create_embeddings()
 """
 
 import os
-import time
+from typing import List, Dict, Any
 
-import google.generativeai as genai
-
-from config import Config
+from sentence_transformers import SentenceTransformer
 
 
 class EmbeddingEngine:
+    """
+    Local embedding engine.
+
+    The model is loaded only once when the application starts.
+    """
+
+    MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
     def __init__(self):
+        print("[EmbeddingEngine] Initializing Local Embedding Engine...")
+
+        # Optional environment override.
+        model_name = os.getenv(
+            "LOCAL_EMBEDDING_MODEL",
+            self.MODEL_NAME,
+        )
+
+        self.model_name = model_name
+
+        # CPU is safest for the current setup.
+        # If a GPU is available later, this can be changed to "cuda".
+        self.device = os.getenv(
+            "EMBEDDING_DEVICE",
+            "cpu",
+        )
+
+        # Load model exactly once.
+        self.model = SentenceTransformer(
+            self.model_name,
+            device=self.device,
+        )
+
+        # all-MiniLM-L6-v2 produces 384-dimensional vectors.
+        self.dimension = self.model.get_sentence_embedding_dimension()
 
         print(
-            "[EmbeddingEngine] "
-            "Initializing Gemini Embedding Engine..."
+            "[EmbeddingEngine] Ready. "
+            f"model={self.model_name}, "
+            f"device={self.device}, "
+            f"dimension={self.dimension}"
         )
 
-        api_key = Config.GEMINI_API_KEY
-
-        if not api_key:
-            api_key = os.getenv(
-                "GEMINI_API_KEY"
-            )
-
-        if not api_key:
-            raise ValueError(
-                "GEMINI_API_KEY is missing. "
-                "Please set it in your environment."
-            )
-
-        genai.configure(
-            api_key=api_key
-        )
-
-        self.model_name = (
-            "models/gemini-embedding-001"
-        )
-
-        print(
-            "[EmbeddingEngine] Ready."
-        )
-
-    # ======================================================================
-    # SINGLE EMBEDDING
-    # ======================================================================
+    # ============================================================
+    # SINGLE TEXT EMBEDDING
+    # ============================================================
 
     def create_embedding(
         self,
         text: str,
         task_type: str = "retrieval_document",
-    ) -> list:
+    ) -> List[float]:
         """
-        Create one embedding.
+        Create one local embedding.
 
-        task_type must normally be:
+        task_type is kept for compatibility with the old Gemini
+        implementation.
 
+        Supported values:
             retrieval_document
-                For storing document chunks.
-
             retrieval_query
-                For user/search questions.
+
+        Both use the same local embedding model because the
+        sentence-transformer model does not require Gemini's
+        task_type parameter.
         """
 
         if text is None:
@@ -81,10 +99,7 @@ class EmbeddingEngine:
                 "[EmbeddingEngine] Text cannot be None."
             )
 
-        if not isinstance(
-            text,
-            str
-        ):
+        if not isinstance(text, str):
             text = str(text)
 
         text = text.strip()
@@ -94,86 +109,45 @@ class EmbeddingEngine:
                 "[EmbeddingEngine] Text cannot be empty."
             )
 
-        valid_task_types = {
+        if task_type not in {
             "retrieval_document",
             "retrieval_query",
-        }
-
-        if task_type not in valid_task_types:
-
+        }:
             raise ValueError(
                 "[EmbeddingEngine] Invalid task_type: "
-                f"{task_type}. "
-                "Expected retrieval_document or "
-                "retrieval_query."
+                f"{task_type}. Expected "
+                "retrieval_document or retrieval_query."
             )
 
-        # --------------------------------------------------------------
-        # Retry transient API failures.
-        # --------------------------------------------------------------
+        try:
+            embedding = self.model.encode(
+                text,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
 
-        for attempt in range(5):
+            return embedding.tolist()
 
-            try:
+        except Exception as e:
+            raise RuntimeError(
+                "[EmbeddingEngine] Local embedding failed: "
+                f"{e}"
+            ) from e
 
-                response = genai.embed_content(
-                    model=self.model_name,
-                    content=text,
-                    task_type=task_type,
-
-                    # Gemini recommends a title for document
-                    # embeddings. Query embeddings don't need one.
-                    title=(
-                        "Renvora Document"
-                        if task_type
-                        == "retrieval_document"
-                        else None
-                    ),
-                )
-
-                embedding = response.get(
-                    "embedding"
-                )
-
-                if not embedding:
-
-                    raise RuntimeError(
-                        "[EmbeddingEngine] "
-                        "Gemini returned an empty embedding."
-                    )
-
-                return embedding
-
-            except Exception as e:
-
-                print(
-                    "[EmbeddingEngine] "
-                    f"Error on attempt "
-                    f"{attempt + 1}/5: {e}"
-                )
-
-                if attempt < 4:
-                    time.sleep(2 ** attempt + 1)
-
-        raise RuntimeError(
-            "[EmbeddingEngine] "
-            "Failed to create embedding after "
-            "5 attempts."
-        )
-
-    # ======================================================================
+    # ============================================================
     # QUERY EMBEDDING
-    # ======================================================================
+    # ============================================================
 
     def create_query_embedding(
         self,
         text: str,
-    ) -> list:
+    ) -> List[float]:
         """
-        Create an embedding for a user's search question.
+        Create an embedding for a user query.
 
-        IMPORTANT:
-        Uses retrieval_query, NOT retrieval_document.
+        Retriever already calls this method, so keeping the same
+        method name means retriever.py does not need to change.
         """
 
         return self.create_embedding(
@@ -181,116 +155,207 @@ class EmbeddingEngine:
             task_type="retrieval_query",
         )
 
-    # ======================================================================
-    # DOCUMENT EMBEDDINGS
-    # ======================================================================
+    # ============================================================
+    # INTERNAL DOCUMENT EMBEDDING
+    # ============================================================
+
+    def _embed_text(
+        self,
+        text: str,
+    ) -> List[float]:
+        """
+        Internal helper used for document chunks.
+        """
+
+        return self.create_embedding(
+            text,
+            task_type="retrieval_document",
+        )
+
+    # ============================================================
+    # BATCH EMBEDDING
+    # ============================================================
 
     def create_embeddings(
         self,
         chunks: list,
     ) -> list:
         """
-        Create document embeddings in parallel.
+        Create embeddings for document chunks.
 
-        Keeps the same output format as the old implementation,
-        but processes multiple chunks concurrently.
+        Uses batch encoding instead of making one Gemini API call
+        per chunk.
+
+        Existing chunk dictionaries are preserved and receive:
+
+            chunk["embedding"] = [...]
+
+        Returns:
+            List of successfully embedded chunks.
         """
 
         if not chunks:
             print(
-                "[EmbeddingEngine] "
-                "No chunks to embed."
+                "[EmbeddingEngine] No chunks to embed."
             )
             return []
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        embedded_chunks = []
         total = len(chunks)
 
-        def embed_one(index, chunk):
-            try:
-                if not isinstance(chunk, dict):
-                    print(
-                        "[EmbeddingEngine] "
-                        f"Skipping invalid chunk "
-                        f"{index + 1}/{total}."
-                    )
-                    return None
+        valid_chunks = []
+        texts = []
 
-                text = chunk.get("text")
+        for index, chunk in enumerate(chunks):
 
-                if not text:
-                    print(
-                        "[EmbeddingEngine] "
-                        f"Skipping empty chunk "
-                        f"{index + 1}/{total}."
-                    )
-                    return None
-
-                embedding = self.create_embedding(
-                    text,
-                    task_type="retrieval_document",
-                )
-
-                chunk["embedding"] = embedding
-
-                return chunk
-
-            except Exception as e:
+            if not isinstance(chunk, dict):
                 print(
-                    "[EmbeddingEngine] "
-                    f"Failed chunk "
-                    f"{index + 1}/{total}: {e}"
+                    "[EmbeddingEngine] Skipping invalid chunk "
+                    f"{index + 1}/{total}."
                 )
-                return None
+                continue
 
-        # Keep concurrency moderate so Gemini API is not overloaded, but fast enough for large PDFs.
-        max_workers = min(15, max(1, total))
+            text = str(
+                chunk.get("text") or ""
+            ).strip()
+
+            if not text:
+                print(
+                    "[EmbeddingEngine] Skipping empty chunk "
+                    f"{index + 1}/{total}."
+                )
+                continue
+
+            valid_chunks.append(chunk)
+            texts.append(text)
+
+        if not valid_chunks:
+            print(
+                "[EmbeddingEngine] No valid chunks found."
+            )
+            return []
 
         print(
-            "[EmbeddingEngine] "
-            f"Embedding {total} chunks "
-            f"using {max_workers} workers..."
+            "[EmbeddingEngine] Starting local batch embedding: "
+            f"{len(texts)} chunks."
         )
 
-        with ThreadPoolExecutor(
-            max_workers=max_workers
-        ) as executor:
-
-            futures = [
-                executor.submit(
-                    embed_one,
-                    index,
-                    chunk,
-                )
-                for index, chunk in enumerate(chunks)
-            ]
-
-            for completed, future in enumerate(
-                as_completed(futures),
-                start=1,
-            ):
-                result = future.result()
-
-                if result is not None:
-                    embedded_chunks.append(result)
-
-                if (
-                    completed % 10 == 0
-                    or completed == total
-                ):
-                    print(
-                        "[EmbeddingEngine] "
-                        f"Progress: "
-                        f"{completed}/{total}"
+        # Configurable batch size.
+        try:
+            batch_size = max(
+                1,
+                int(
+                    os.getenv(
+                        "EMBEDDING_BATCH_SIZE",
+                        "32",
                     )
+                ),
+            )
+        except ValueError:
+            batch_size = 32
 
         print(
             "[EmbeddingEngine] "
-            f"Embedded "
-            f"{len(embedded_chunks)}/{total} "
-            f"chunks successfully."
+            f"batch_size={batch_size}, "
+            f"dimension={self.dimension}"
+        )
+
+        try:
+            embeddings = self.model.encode(
+                texts,
+                batch_size=batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=True,
+            )
+
+        except Exception as e:
+            raise RuntimeError(
+                "[EmbeddingEngine] Batch embedding failed: "
+                f"{e}"
+            ) from e
+
+        embedded_chunks = []
+
+        for chunk, embedding in zip(
+            valid_chunks,
+            embeddings,
+        ):
+            chunk["embedding"] = embedding.tolist()
+            embedded_chunks.append(chunk)
+
+        print(
+            "[EmbeddingEngine] Successfully embedded "
+            f"{len(embedded_chunks)}/{len(valid_chunks)} chunks."
         )
 
         return embedded_chunks
+
+    # ============================================================
+    # BATCH TEXT EMBEDDING HELPER
+    # ============================================================
+
+    def create_text_embeddings(
+        self,
+        texts: List[str],
+        batch_size: int = 32,
+    ) -> List[List[float]]:
+        """
+        Direct batch embedding helper.
+
+        Useful for migration/re-indexing scripts.
+        """
+
+        if not texts:
+            return []
+
+        cleaned_texts = []
+
+        for text in texts:
+            if text is None:
+                continue
+
+            text = str(text).strip()
+
+            if text:
+                cleaned_texts.append(text)
+
+        if not cleaned_texts:
+            return []
+
+        try:
+            embeddings = self.model.encode(
+                cleaned_texts,
+                batch_size=batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+
+        except Exception as e:
+            raise RuntimeError(
+                "[EmbeddingEngine] Batch text embedding failed: "
+                f"{e}"
+            ) from e
+
+        return [
+            embedding.tolist()
+            for embedding in embeddings
+        ]
+
+    # ============================================================
+    # MODEL INFORMATION
+    # ============================================================
+
+    def get_dimension(self) -> int:
+        """
+        Return embedding vector dimension.
+        """
+
+        return int(self.dimension)
+
+    def get_model_name(self) -> str:
+        """
+        Return current local embedding model name.
+        """
+
+        return self.model_name

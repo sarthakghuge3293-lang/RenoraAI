@@ -25,7 +25,7 @@ class Retriever:
     def search(
         self,
         question: str,
-        collection_name: str = "renvora_knowledge_v2",
+        collection_name: str = "renvora_knowledge_local_v1",
         top_k: int = 5,
         where: dict = None,
     ) -> dict:
@@ -192,40 +192,122 @@ class Retriever:
     # ======================================================================
     # DOCUMENT-SPECIFIC SEARCH
     # ======================================================================
-
     def search_document(
         self,
         question: str,
         collection_name: str,
-        document_name: str,
+        document_name: str = None,
+        document_id: int = None,
         top_k: int = 5,
     ) -> dict:
-        """
-        Search only inside one uploaded document.
+        """Search only inside one exact uploaded document.
 
-        This is useful when the user explicitly refers to:
-
-            "XYZ company PDF"
-            "my joining letter"
-            "that document"
-
-        and we already know the document name.
+        Priority:
+            1. document_id  -> safest
+            2. document_name -> backward compatibility
         """
 
-        if not document_name:
+        # ----------------------------------------------------------
+        # EXACT DOC ID SEARCH
+        # ----------------------------------------------------------
+
+        if document_id is not None:
+
+            try:
+                document_id = int(document_id)
+            except (TypeError, ValueError):
+                print(
+                    f"[Retriever] Invalid document_id: {document_id}"
+                )
+
+                return {
+                    "ids": [[]],
+                    "documents": [[]],
+                    "distances": [[]],
+                    "metadatas": [[]],
+                }
+
+            try:
+
+                question_embedding = (
+                    self.embedding_engine.create_query_embedding(
+                        question
+                    )
+                )
+
+                if not question_embedding:
+                    return {
+                        "ids": [[]],
+                        "documents": [[]],
+                        "distances": [[]],
+                        "metadatas": [[]],
+                    }
+
+                vector_store = VectorStore(
+                    collection_name
+                )
+
+                result = vector_store.search_by_doc_id(
+                    embedding=question_embedding,
+                    doc_id=document_id,
+                    top_k=top_k,
+                )
+
+                if not result:
+                    return {
+                        "ids": [[]],
+                        "documents": [[]],
+                        "distances": [[]],
+                        "metadatas": [[]],
+                    }
+
+                print(
+                    "[Retriever] Exact document search:",
+                    f"collection={collection_name},",
+                    f"doc_id={document_id},",
+                    f"results={len(result.get('documents', [[]])[0])}"
+                )
+
+                return result
+
+            except Exception as e:
+
+                print(
+                    f"[Retriever] ERROR searching doc_id={document_id}: {e}"
+                )
+
+                traceback.print_exc()
+
+                return {
+                    "ids": [[]],
+                    "documents": [[]],
+                    "distances": [[]],
+                    "metadatas": [[]],
+                }
+
+        # ----------------------------------------------------------
+        # OLD PDF NAME SEARCH
+        # ----------------------------------------------------------
+
+        if document_name:
+
             return self.search(
                 question=question,
                 collection_name=collection_name,
                 top_k=top_k,
+                where={
+                    "pdf_name": document_name
+                },
             )
+
+        # ----------------------------------------------------------
+        # NO DOCUMENT LOCK
+        # ----------------------------------------------------------
 
         return self.search(
             question=question,
             collection_name=collection_name,
             top_k=top_k,
-            where={
-                "pdf_name": document_name
-            },
         )
 
     # ======================================================================

@@ -1,4 +1,5 @@
 import os
+from pydoc import doc
 from flask import Blueprint, request, jsonify, render_template, session
 from werkzeug.utils import secure_filename
 
@@ -27,6 +28,9 @@ def process_document_background(app, pdf_path, filename, user_id, collection_nam
             pages = document_reader.read_document(pdf_path, filename)
             chunks = chunker.chunk_document(filename, pages)
             
+            for chunk in chunks:
+                chunk["doc_id"] = doc_id
+
             if not chunks:
                 if os.path.exists(pdf_path):
                     os.remove(pdf_path)
@@ -90,7 +94,7 @@ def upload_pdf():
 
         pdf.save(pdf_path)
 
-        collection_name = f"user_{user_id}_v2"
+        collection_name = f"user_{user_id}_local_v1"
         ext = os.path.splitext(pdf.filename)[1].lower().replace(".", "")
         if not ext:
             ext = "unknown"
@@ -205,7 +209,7 @@ def delete_document(doc_id):
     # Delete from Vector Store
     try:
         vector_store = VectorStore(doc.collection_name)
-        vector_store.delete_by_pdf_name(doc.file_name)
+        vector_store.delete_by_doc_id(doc.id)
     except Exception as e:
         print("Error deleting from ChromaDB:", e)
 
@@ -222,7 +226,7 @@ def delete_document(doc_id):
         s.active_source = "renvora_knowledge"
         s.active_doc_name = None
         s.active_doc_id = None
-    
+
     # Delete from DB
     db.session.delete(doc)
     db.session.commit()

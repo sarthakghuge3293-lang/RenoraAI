@@ -114,6 +114,7 @@ def ai_chat():
         # Read persisted source lock from DB
         locked_source = chat_session.active_source
         locked_doc_name = chat_session.active_doc_name
+        locked_doc_id = chat_session.active_doc_id
 
         # Call AI engine
         result = generate_response(
@@ -122,6 +123,7 @@ def ai_chat():
             chat_history=chat_history,
             locked_source=locked_source,
             locked_doc_name=locked_doc_name,
+            locked_doc_id=locked_doc_id,
             user_documents=user_documents,
         )
 
@@ -132,6 +134,10 @@ def ai_chat():
         if new_lock and chat_session:
             chat_session.active_source = new_lock
             chat_session.active_doc_name = result.get("lock_doc_name")
+            if new_lock == "uploaded_document" and result.get("lock_doc_name"):
+                # if lock_doc_name is set but we need doc_id, let's just keep the existing one or look it up
+                # actually, locked_doc_id shouldn't change unless user manually changes it.
+                pass
             db.session.commit()
 
         result["session_id"] = session_id
@@ -188,6 +194,7 @@ def lock_source():
         return jsonify({"success": False, "message": "Session not found"}), 404
         
     actual_doc_name = doc_name
+    actual_doc_id = doc_id
 
     if source == "uploaded_document":
         document = None
@@ -204,11 +211,13 @@ def lock_source():
             
         if document:
             actual_doc_name = document.file_name
+            actual_doc_id = document.id
         else:
             return jsonify({"success": False, "message": "Document not found"}), 404
 
     chat_session.active_source = source
     chat_session.active_doc_name = actual_doc_name
+    chat_session.active_doc_id = actual_doc_id if source == "uploaded_document" else None
     db.session.commit()
 
     return jsonify({"success": True, "locked_to": source, "doc_name": actual_doc_name})
