@@ -529,12 +529,10 @@ def api_register():
     db.session.commit()
 
     return jsonify({
-        "success": True,
-        "message": (
-            "Registration successful. "
-            "Please login."
-        ),
-    })
+    "success": True,
+    "message": "Registration successful.",
+    "redirect": "/login"
+}), 201
 
 
 @mobile_api.route(

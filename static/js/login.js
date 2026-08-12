@@ -115,3 +115,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 });
+form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    // existing fetch code...
+
+    const data = await response.json();
+
+    if (data.success) {
+        window.location.href = "/login";
+        return;
+    }
+
+    alert(data.message || "Registration failed.");
+});

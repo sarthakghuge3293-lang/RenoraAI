@@ -308,61 +308,231 @@
 
     </div>
 
+<script>
+    function togglePassword(inputId, button) {
+        const input = document.getElementById(inputId);
 
-    <script>
-
-        function togglePassword(inputId, button) {
-
-            const input = document.getElementById(inputId);
-
-            if (input.type === "password") {
-
-                input.type = "text";
-                button.textContent = "Hide";
-
-            } else {
-
-                input.type = "password";
-                button.textContent = "Show";
-
-            }
+        if (input.type === "password") {
+            input.type = "text";
+            button.textContent = "Hide";
+        } else {
+            input.type = "password";
+            button.textContent = "Show";
         }
+    }
+
+    document
+        .getElementById("registerForm")
+        .addEventListener("submit", async function (event) {
+
+            event.preventDefault();
+
+            const name =
+                document.getElementById("name").value.trim();
+
+            const email =
+                document.getElementById("email").value.trim().toLowerCase();
+
+            const password =
+                document.getElementById("password").value;
+
+            const confirmPassword =
+                document.getElementById("confirmPassword").value;
+
+            const terms =
+                document.getElementById("terms").checked;
+
+            const message =
+                document.getElementById("message");
+
+            const button =
+                document.querySelector(".register-btn");
 
 
-        document
-            .getElementById("registerForm")
-            .addEventListener("submit", function(event) {
+            // ====================================================
+            // VALIDATION
+            // ====================================================
 
-                const password =
-                    document.getElementById("password").value;
+            if (!name || !email || !password || !confirmPassword) {
 
-                const confirmPassword =
-                    document.getElementById("confirmPassword").value;
+                message.textContent =
+                    "Please fill all fields.";
 
-                const message =
-                    document.getElementById("message");
+                message.className =
+                    "message error";
+
+                message.style.display =
+                    "block";
+
+                return;
+            }
 
 
-                if (password !== confirmPassword) {
+            if (password.length < 6) {
 
-                    event.preventDefault();
+                message.textContent =
+                    "Password must be at least 6 characters.";
+
+                message.className =
+                    "message error";
+
+                message.style.display =
+                    "block";
+
+                return;
+            }
+
+
+            if (password !== confirmPassword) {
+
+                message.textContent =
+                    "Passwords do not match.";
+
+                message.className =
+                    "message error";
+
+                message.style.display =
+                    "block";
+
+                return;
+            }
+
+
+            if (!terms) {
+
+                message.textContent =
+                    "Please accept the Terms & Privacy Policy.";
+
+                message.className =
+                    "message error";
+
+                message.style.display =
+                    "block";
+
+                return;
+            }
+
+
+            // ====================================================
+            // DISABLE BUTTON
+            // ====================================================
+
+            button.disabled = true;
+
+            button.textContent =
+                "Creating Account...";
+
+            message.style.display =
+                "none";
+
+
+            // ====================================================
+            // API REQUEST
+            // ====================================================
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/mobile/auth/register",
+                        {
+                            method: "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
+
+                            credentials: "same-origin",
+
+                            body: JSON.stringify({
+                                name: name,
+                                email: email,
+                                password: password
+                            })
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                // ====================================================
+                // SUCCESS
+                // ====================================================
+
+                if (
+                    response.ok &&
+                    data.success
+                ) {
 
                     message.textContent =
-                        "Passwords do not match.";
+                        "Registration successful! Redirecting to login...";
 
                     message.className =
-                        "message error";
+                        "message success";
 
                     message.style.display =
                         "block";
 
+
+                    setTimeout(
+                        function () {
+
+                            window.location.href =
+                                "/login";
+
+                        },
+                        800
+                    );
+
                     return;
                 }
 
-                message.style.display = "none";
-            });
 
-    </script>
+                // ====================================================
+                // ERROR
+                // ====================================================
 
+                message.textContent =
+                    data.message ||
+                    "Registration failed.";
+
+                message.className =
+                    "message error";
+
+                message.style.display =
+                    "block";
+
+
+            } catch (error) {
+
+                console.error(
+                    "Registration error:",
+                    error
+                );
+
+
+                message.textContent =
+                    "Unable to connect to the server.";
+
+                message.className =
+                    "message error";
+
+                message.style.display =
+                    "block";
+
+
+            } finally {
+
+                button.disabled =
+                    false;
+
+                button.textContent =
+                    "Create Account";
+            }
+        });
+</script>
 </body>
 </html>

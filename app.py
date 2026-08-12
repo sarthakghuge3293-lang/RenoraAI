@@ -1,3 +1,8 @@
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+
 from flask import Flask, redirect
 from flask_cors import CORS
 from config import Config

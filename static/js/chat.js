@@ -114,6 +114,9 @@ function handleFileUpload() {
             
             // Refresh sidebar list
             fetchUserDocuments();
+
+            // Auto-select the newly uploaded document
+            setActiveDocument(data.pdf || file.name);
         } else {
             currentPdf.innerHTML = "❌ Upload Failed";
             alert(data.message || data.error);
