@@ -28,7 +28,9 @@ from flask import (
 # IMPORTANT:
 # Use the main AI engine.
 # Do NOT use services.gemini_service here.
-from services.ai_engine import generate_response
+from services.ai_engine import AIEngine
+
+ai_engine = AIEngine()
 
 from models.user import db
 from models.chat_log import ChatLog
@@ -310,16 +312,15 @@ def ai_chat():
         # 3. Uploaded PDF retrieval
         # 4. doc_id isolation
         #
-        result = generate_response(
-            user_message=message,
-            user_id=user_id,
-            chat_history=chat_history,
-            locked_source=locked_source,
-            locked_doc_name=locked_doc_name,
-            locked_doc_id=locked_doc_id,
-            user_documents=user_documents,
-        )
-
+        result = ai_engine.generate_response(
+    user_message=message,
+    user_id=user_id,
+    chat_history=chat_history,
+    locked_source=locked_source,
+    locked_doc_name=locked_doc_name,
+    locked_doc_id=locked_doc_id,
+    user_documents=user_documents,
+)
 
         reply = result.get(
             "reply",
