@@ -7,61 +7,114 @@ Uses:
     sentence-transformers/all-MiniLM-L6-v2
 
 Purpose:
-- Company Knowledge query embeddings
-- Company Knowledge document embeddings
-- User PDF embeddings
-- No Gemini Embedding API
-- No Gemini embedding quota / 429 dependency
-- Batch embedding for faster document processing
+    - Company Knowledge query embeddings
+    - Company Knowledge document embeddings
+    - User PDF embeddings
+    - No Gemini Embedding API
+    - No Gemini embedding quota / 429 dependency
+    - Batch embedding for document processing
 
-The public interface is intentionally kept compatible with
-the existing Retriever:
-    create_embedding()
-    create_query_embedding()
-    create_embeddings()
+IMPORTANT:
+    The SentenceTransformer model is shared between all
+    EmbeddingEngine instances inside the same Python process.
+
+    This prevents the same model from being loaded multiple
+    times by AIEngine, Retriever, mobile_api, user_pdf, etc.
 """
 
 import os
-from typing import List, Dict, Any
+import threading
+from typing import List
 
 from sentence_transformers import SentenceTransformer
 
 
 class EmbeddingEngine:
-    """
-    Local embedding engine.
-
-    The model is loaded only once when the application starts.
-    """
 
     MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
-    def __init__(self):
-        print("[EmbeddingEngine] Initializing Local Embedding Engine...")
+    # ============================================================
+    # SHARED MODEL
+    # ============================================================
 
-        # Optional environment override.
-        model_name = os.getenv(
+    _shared_models = {}
+    _model_lock = threading.Lock()
+
+    # Protect encode operations.
+    # This also keeps CPU memory usage more predictable on Render.
+    _encode_lock = threading.Lock()
+
+    def __init__(self):
+
+        print(
+            "[EmbeddingEngine] Initializing Local Embedding Engine..."
+        )
+
+        # --------------------------------------------------------
+        # MODEL CONFIGURATION
+        # --------------------------------------------------------
+
+        self.model_name = os.getenv(
             "LOCAL_EMBEDDING_MODEL",
             self.MODEL_NAME,
         )
 
-        self.model_name = model_name
-
-        # CPU is safest for the current setup.
-        # If a GPU is available later, this can be changed to "cuda".
         self.device = os.getenv(
             "EMBEDDING_DEVICE",
             "cpu",
         )
 
-        # Load model exactly once.
-        self.model = SentenceTransformer(
+        model_key = (
             self.model_name,
-            device=self.device,
+            self.device,
         )
 
-        # all-MiniLM-L6-v2 produces 384-dimensional vectors.
-        self.dimension = self.model.get_sentence_embedding_dimension()
+        # --------------------------------------------------------
+        # LOAD MODEL ONLY ONCE PER PROCESS
+        # --------------------------------------------------------
+
+        if model_key not in EmbeddingEngine._shared_models:
+
+            with EmbeddingEngine._model_lock:
+
+                if model_key not in EmbeddingEngine._shared_models:
+
+                    print(
+                        "[EmbeddingEngine] Loading shared "
+                        "SentenceTransformer model..."
+                    )
+
+                    model = SentenceTransformer(
+                        self.model_name,
+                        device=self.device,
+                    )
+
+                    EmbeddingEngine._shared_models[
+                        model_key
+                    ] = model
+
+                    print(
+                        "[EmbeddingEngine] Shared model loaded."
+                    )
+
+        else:
+
+            print(
+                "[EmbeddingEngine] Reusing existing "
+                "shared model."
+            )
+
+        self.model = EmbeddingEngine._shared_models[
+            model_key
+        ]
+
+        # --------------------------------------------------------
+        # DIMENSION
+        # --------------------------------------------------------
+
+        self.dimension = (
+            self.model.get_sentence_embedding_dimension()
+        )
 
         print(
             "[EmbeddingEngine] Ready. "
@@ -79,19 +132,16 @@ class EmbeddingEngine:
         text: str,
         task_type: str = "retrieval_document",
     ) -> List[float]:
+
         """
         Create one local embedding.
 
-        task_type is kept for compatibility with the old Gemini
-        implementation.
+        task_type is retained for compatibility with
+        the previous Gemini implementation.
 
-        Supported values:
+        Supported:
             retrieval_document
             retrieval_query
-
-        Both use the same local embedding model because the
-        sentence-transformer model does not require Gemini's
-        task_type parameter.
         """
 
         if text is None:
@@ -120,16 +170,25 @@ class EmbeddingEngine:
             )
 
         try:
-            embedding = self.model.encode(
-                text,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-                show_progress_bar=False,
-            )
+
+            # ----------------------------------------------------
+            # One shared encode operation at a time.
+            # This is intentionally conservative for Render Free.
+            # ----------------------------------------------------
+
+            with EmbeddingEngine._encode_lock:
+
+                embedding = self.model.encode(
+                    text,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                )
 
             return embedding.tolist()
 
         except Exception as e:
+
             raise RuntimeError(
                 "[EmbeddingEngine] Local embedding failed: "
                 f"{e}"
@@ -143,11 +202,11 @@ class EmbeddingEngine:
         self,
         text: str,
     ) -> List[float]:
-        """
-        Create an embedding for a user query.
 
-        Retriever already calls this method, so keeping the same
-        method name means retriever.py does not need to change.
+        """
+        Create embedding for a user query.
+
+        Retriever already uses this method.
         """
 
         return self.create_embedding(
@@ -163,9 +222,6 @@ class EmbeddingEngine:
         self,
         text: str,
     ) -> List[float]:
-        """
-        Internal helper used for document chunks.
-        """
 
         return self.create_embedding(
             text,
@@ -180,11 +236,9 @@ class EmbeddingEngine:
         self,
         chunks: list,
     ) -> list:
+
         """
         Create embeddings for document chunks.
-
-        Uses batch encoding instead of making one Gemini API call
-        per chunk.
 
         Existing chunk dictionaries are preserved and receive:
 
@@ -195,9 +249,11 @@ class EmbeddingEngine:
         """
 
         if not chunks:
+
             print(
                 "[EmbeddingEngine] No chunks to embed."
             )
+
             return []
 
         total = len(chunks)
@@ -205,13 +261,19 @@ class EmbeddingEngine:
         valid_chunks = []
         texts = []
 
+        # --------------------------------------------------------
+        # VALIDATE CHUNKS
+        # --------------------------------------------------------
+
         for index, chunk in enumerate(chunks):
 
             if not isinstance(chunk, dict):
+
                 print(
                     "[EmbeddingEngine] Skipping invalid chunk "
                     f"{index + 1}/{total}."
                 )
+
                 continue
 
             text = str(
@@ -219,39 +281,58 @@ class EmbeddingEngine:
             ).strip()
 
             if not text:
+
                 print(
                     "[EmbeddingEngine] Skipping empty chunk "
                     f"{index + 1}/{total}."
                 )
+
                 continue
 
             valid_chunks.append(chunk)
             texts.append(text)
 
         if not valid_chunks:
+
             print(
                 "[EmbeddingEngine] No valid chunks found."
             )
+
             return []
 
-        print(
-            "[EmbeddingEngine] Starting local batch embedding: "
-            f"{len(texts)} chunks."
-        )
+        # --------------------------------------------------------
+        # BATCH SIZE
+        # --------------------------------------------------------
+        #
+        # Render Free has limited RAM.
+        # 8 is safer than the previous default of 32.
+        #
+        # It can still be overridden:
+        #
+        # EMBEDDING_BATCH_SIZE=16
+        #
+        # --------------------------------------------------------
 
-        # Configurable batch size.
         try:
+
             batch_size = max(
                 1,
                 int(
                     os.getenv(
                         "EMBEDDING_BATCH_SIZE",
-                        "32",
+                        "8",
                     )
                 ),
             )
-        except ValueError:
-            batch_size = 32
+
+        except (TypeError, ValueError):
+
+            batch_size = 8
+
+        print(
+            "[EmbeddingEngine] Starting local batch embedding: "
+            f"{len(texts)} chunks."
+        )
 
         print(
             "[EmbeddingEngine] "
@@ -259,20 +340,32 @@ class EmbeddingEngine:
             f"dimension={self.dimension}"
         )
 
+        # --------------------------------------------------------
+        # BATCH ENCODE
+        # --------------------------------------------------------
+
         try:
-            embeddings = self.model.encode(
-                texts,
-                batch_size=batch_size,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-                show_progress_bar=True,
-            )
+
+            with EmbeddingEngine._encode_lock:
+
+                embeddings = self.model.encode(
+                    texts,
+                    batch_size=batch_size,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                )
 
         except Exception as e:
+
             raise RuntimeError(
                 "[EmbeddingEngine] Batch embedding failed: "
                 f"{e}"
             ) from e
+
+        # --------------------------------------------------------
+        # ATTACH EMBEDDINGS TO CHUNKS
+        # --------------------------------------------------------
 
         embedded_chunks = []
 
@@ -280,7 +373,11 @@ class EmbeddingEngine:
             valid_chunks,
             embeddings,
         ):
-            chunk["embedding"] = embedding.tolist()
+
+            chunk["embedding"] = (
+                embedding.tolist()
+            )
+
             embedded_chunks.append(chunk)
 
         print(
@@ -297,8 +394,9 @@ class EmbeddingEngine:
     def create_text_embeddings(
         self,
         texts: List[str],
-        batch_size: int = 32,
+        batch_size: int = 8,
     ) -> List[List[float]]:
+
         """
         Direct batch embedding helper.
 
@@ -311,6 +409,7 @@ class EmbeddingEngine:
         cleaned_texts = []
 
         for text in texts:
+
             if text is None:
                 continue
 
@@ -323,15 +422,19 @@ class EmbeddingEngine:
             return []
 
         try:
-            embeddings = self.model.encode(
-                cleaned_texts,
-                batch_size=batch_size,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-                show_progress_bar=False,
-            )
+
+            with EmbeddingEngine._encode_lock:
+
+                embeddings = self.model.encode(
+                    cleaned_texts,
+                    batch_size=batch_size,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                )
 
         except Exception as e:
+
             raise RuntimeError(
                 "[EmbeddingEngine] Batch text embedding failed: "
                 f"{e}"
@@ -347,15 +450,9 @@ class EmbeddingEngine:
     # ============================================================
 
     def get_dimension(self) -> int:
-        """
-        Return embedding vector dimension.
-        """
 
-        return int(self.dimension)
+        return self.dimension
 
     def get_model_name(self) -> str:
-        """
-        Return current local embedding model name.
-        """
 
         return self.model_name
