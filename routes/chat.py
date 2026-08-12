@@ -28,9 +28,7 @@ from flask import (
 # IMPORTANT:
 # Use the main AI engine.
 # Do NOT use services.gemini_service here.
-from services.ai_engine import AIEngine
-
-ai_engine = AIEngine()
+from services.ai_engine import generate_response
 
 from models.user import db
 from models.chat_log import ChatLog
@@ -312,15 +310,16 @@ def ai_chat():
         # 3. Uploaded PDF retrieval
         # 4. doc_id isolation
         #
-        result = ai_engine.generate_response(
-    user_message=message,
-    user_id=user_id,
-    chat_history=chat_history,
-    locked_source=locked_source,
-    locked_doc_name=locked_doc_name,
-    locked_doc_id=locked_doc_id,
-    user_documents=user_documents,
-)
+        result = generate_response(
+            user_message=message,
+            user_id=user_id,
+            chat_history=chat_history,
+            locked_source=locked_source,
+            locked_doc_name=locked_doc_name,
+            locked_doc_id=locked_doc_id,
+            user_documents=user_documents,
+        )
+
 
         reply = result.get(
             "reply",
@@ -381,7 +380,9 @@ def ai_chat():
 
             elif new_lock == "renvora_knowledge":
 
-                chat_session.active_doc_id = None
+                # Keep the currently selected document.
+                # Renvora is only the source for the current question.
+                pass
 
 
             db.session.commit()
@@ -622,7 +623,9 @@ def lock_source():
 
     else:
 
-        chat_session.active_doc_id = None
+        # Switching to Renvora does not delete the selected document.
+        # The current question decides the source; the document stays available.
+        pass
 
 
     db.session.commit()

@@ -1,20 +1,22 @@
 """
 services/embeddings.py
 
-Renvora AI Cloud Embedding Engine
+Qdrant Cloud Inference embedding adapter.
 
-Embedding generation is handled by Qdrant Cloud Inference.
+IMPORTANT:
+- No local SentenceTransformer.
+- No Gemini embedding API.
+- No local embedding model in Render.
+- Qdrant Cloud creates embeddings using:
+    sentence-transformers/all-MiniLM-L6-v2
 
-The local Render server does NOT load:
-    - torch
-    - sentence-transformers
-    - all-MiniLM-L6-v2
-
-This keeps the backend lightweight enough for Render Free.
+The class keeps the old public method names so existing upload
+code remains compatible.
 """
 
-import os
-from typing import List
+from typing import List, Dict, Any
+
+from qdrant_client import models
 
 
 class EmbeddingEngine:
@@ -23,23 +25,11 @@ class EmbeddingEngine:
     DIMENSION = 384
 
     def __init__(self):
-
-        print(
-            "[EmbeddingEngine] Initializing Cloud Embedding Engine..."
-        )
-
-        self.model_name = os.getenv(
-            "QDRANT_EMBEDDING_MODEL",
-            self.MODEL_NAME,
-        )
-
-        self.dimension = self.DIMENSION
-
         print(
             "[EmbeddingEngine] Ready. "
-            f"provider=Qdrant Cloud Inference, "
-            f"model={self.model_name}, "
-            f"dimension={self.dimension}"
+            "provider=Qdrant Cloud Inference, "
+            f"model={self.MODEL_NAME}, "
+            f"dimension={self.DIMENSION}"
         )
 
     # ============================================================
@@ -50,17 +40,19 @@ class EmbeddingEngine:
         self,
         text: str,
         task_type: str = "retrieval_document",
-    ) -> str:
+    ):
+        """
+        Return a Qdrant Cloud Inference Document.
+
+        The actual numeric vector is generated inside Qdrant Cloud.
+        """
 
         if text is None:
             raise ValueError(
                 "[EmbeddingEngine] Text cannot be None."
             )
 
-        if not isinstance(text, str):
-            text = str(text)
-
-        text = text.strip()
+        text = str(text).strip()
 
         if not text:
             raise ValueError(
@@ -76,12 +68,10 @@ class EmbeddingEngine:
                 f"{task_type}"
             )
 
-        # IMPORTANT:
-        # We return the original text.
-        #
-        # VectorStore sends this text to Qdrant Cloud
-        # Inference where the actual embedding is created.
-        return text
+        return models.Document(
+            text=text,
+            model=self.MODEL_NAME,
+        )
 
     # ============================================================
     # QUERY EMBEDDING
@@ -90,55 +80,41 @@ class EmbeddingEngine:
     def create_query_embedding(
         self,
         text: str,
-    ) -> str:
-
+    ):
         return self.create_embedding(
             text,
             task_type="retrieval_query",
         )
 
     # ============================================================
-    # INTERNAL DOCUMENT EMBEDDING
-    # ============================================================
-
-    def _embed_text(
-        self,
-        text: str,
-    ) -> str:
-
-        return self.create_embedding(
-            text,
-            task_type="retrieval_document",
-        )
-
-    # ============================================================
-    # BATCH EMBEDDING
+    # DOCUMENT EMBEDDINGS
     # ============================================================
 
     def create_embeddings(
         self,
-        chunks: list,
-    ) -> list:
+        chunks: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Validate chunks.
+
+        Qdrant Cloud performs the real embedding when the chunks
+        are uploaded.
+
+        This preserves compatibility with existing upload code.
+        """
 
         if not chunks:
-
-            print(
-                "[EmbeddingEngine] No chunks to embed."
-            )
-
             return []
 
-        embedded_chunks = []
+        valid_chunks = []
 
         for index, chunk in enumerate(chunks):
 
             if not isinstance(chunk, dict):
-
                 print(
-                    "[EmbeddingEngine] Skipping invalid chunk "
-                    f"{index + 1}/{len(chunks)}."
+                    "[EmbeddingEngine] "
+                    f"Skipping invalid chunk {index + 1}."
                 )
-
                 continue
 
             text = str(
@@ -146,45 +122,56 @@ class EmbeddingEngine:
             ).strip()
 
             if not text:
-
                 print(
-                    "[EmbeddingEngine] Skipping empty chunk "
-                    f"{index + 1}/{len(chunks)}."
+                    "[EmbeddingEngine] "
+                    f"Skipping empty chunk {index + 1}."
                 )
-
                 continue
 
-            # Keep compatibility with existing pipeline.
-            #
-            # VectorStore will NOT treat this as a real vector.
-            # It will send the text to Qdrant Cloud Inference.
+            clean_chunk = dict(chunk)
 
-            chunk["embedding"] = text
+            clean_chunk["text"] = text
 
-            embedded_chunks.append(chunk)
+            # Compatibility marker.
+            clean_chunk["embedding_provider"] = (
+                "qdrant_cloud_inference"
+            )
+
+            clean_chunk["embedding_model"] = (
+                self.MODEL_NAME
+            )
+
+            valid_chunks.append(
+                clean_chunk
+            )
 
         print(
             "[EmbeddingEngine] Prepared "
-            f"{len(embedded_chunks)}/{len(chunks)} chunks "
+            f"{len(valid_chunks)}/{len(chunks)} chunks "
             "for Qdrant Cloud Inference."
         )
 
-        return embedded_chunks
+        return valid_chunks
 
     # ============================================================
-    # BATCH TEXT HELPER
+    # TEXT BATCH HELPER
     # ============================================================
 
     def create_text_embeddings(
         self,
         texts: List[str],
-        batch_size: int = 8,
-    ) -> List[str]:
+        batch_size: int = 32,
+    ):
+        """
+        Compatibility helper.
+
+        Returns Qdrant Document objects instead of local vectors.
+        """
 
         if not texts:
             return []
 
-        result = []
+        results = []
 
         for text in texts:
 
@@ -193,19 +180,28 @@ class EmbeddingEngine:
 
             text = str(text).strip()
 
-            if text:
-                result.append(text)
+            if not text:
+                continue
 
-        return result
+            results.append(
+                self.create_embedding(
+                    text,
+                    task_type="retrieval_document",
+                )
+            )
+
+        return results
 
     # ============================================================
-    # MODEL INFORMATION
+    # MODEL INFO
     # ============================================================
-
-    def get_dimension(self) -> int:
-
-        return self.dimension
 
     def get_model_name(self) -> str:
+        return self.MODEL_NAME
 
-        return self.model_name
+    def get_dimension(self) -> int:
+        return self.DIMENSION
+
+    @property
+    def dimension(self) -> int:
+        return self.DIMENSION

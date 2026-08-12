@@ -25,6 +25,7 @@ import threading
 def process_document_background(app, pdf_path, filename, user_id, collection_name, doc_id):
     with app.app_context():
         try:
+            print(f"\n[DocumentUpload] Starting processing for {filename}")
             pages = document_reader.read_document(pdf_path, filename)
             chunks = chunker.chunk_document(filename, pages)
             
@@ -32,6 +33,7 @@ def process_document_background(app, pdf_path, filename, user_id, collection_nam
                 chunk["doc_id"] = doc_id
 
             if not chunks:
+                print(f"[DocumentUpload] No text found in {filename}")
                 if os.path.exists(pdf_path):
                     os.remove(pdf_path)
                 doc = UserDocument.query.get(doc_id)
@@ -40,18 +42,24 @@ def process_document_background(app, pdf_path, filename, user_id, collection_nam
                     db.session.commit()
                 return
 
+            print(f"[DocumentUpload] Extracted chunks: {len(chunks)}")
+
             embedded_chunks = embedding_engine.create_embeddings(chunks)
+            print(f"[DocumentUpload] Embedded chunks: {len(embedded_chunks)}")
+
             vector_store = VectorStore(collection_name)
             vector_store.add_chunks(embedded_chunks)
+            print(f"[DocumentUpload] Uploaded vectors: {len(embedded_chunks)}")
 
             doc = UserDocument.query.get(doc_id)
             if doc:
                 doc.status = "ready"
                 doc.page_count = len(pages)
                 db.session.commit()
+            print(f"[DocumentUpload] Successfully marked {filename} as ready")
                 
         except Exception as e:
-            print("Background Processing Error:", e)
+            print(f"[DocumentUpload] Background Processing Error: {e}")
             doc = UserDocument.query.get(doc_id)
             if doc:
                 doc.status = f"Failed: {str(e)[:50]}"
@@ -211,7 +219,7 @@ def delete_document(doc_id):
         vector_store = VectorStore(doc.collection_name)
         vector_store.delete_by_doc_id(doc.id)
     except Exception as e:
-        print("Error deleting from ChromaDB:", e)
+        print("Error deleting from Qdrant:", e)
 
     # Delete physical file
     if os.path.exists(doc.file_path):

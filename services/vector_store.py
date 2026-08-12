@@ -1,38 +1,54 @@
 """
 services/vector_store.py
 
-Renvora AI Qdrant Cloud Vector Store.
+Qdrant Cloud vector storage layer.
 
-Qdrant Cloud handles:
-- vector storage
-- semantic search
-- Cloud Inference embeddings
-- metadata filtering
+Responsibilities:
+- Connect to Qdrant Cloud
+- Create collections
+- Create payload indexes
+- Upload document chunks
+- Search document chunks
+- Delete by doc_id
+- Verify document indexing
+
+No source-routing logic lives here.
 """
 
 import os
-import hashlib
+import uuid
+from typing import Any, Dict, List, Optional
 
+from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
+
+load_dotenv(override=True)
 
 
 class VectorStore:
 
-    EMBEDDING_MODEL = (
+    MODEL_NAME = (
         "sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    VECTOR_SIZE = 384
+    DIMENSION = 384
 
     def __init__(
         self,
-        collection_name="renvora_knowledge_local_v1",
+        collection_name: str,
     ):
 
-        self.collection_name = collection_name
+        self.collection_name = (
+            collection_name
+        )
 
-        self.url = os.getenv("QDRANT_URL")
-        self.api_key = os.getenv("QDRANT_API_KEY")
+        self.url = os.getenv(
+            "QDRANT_URL"
+        )
+
+        self.api_key = os.getenv(
+            "QDRANT_API_KEY"
+        )
 
         if not self.url:
             raise RuntimeError(
@@ -44,17 +60,26 @@ class VectorStore:
                 "[VectorStore] QDRANT_API_KEY is not configured."
             )
 
-        self.client = QdrantClient(
-            url=self.url,
-            api_key=self.api_key,
-            cloud_inference=True,
-        )
+        try:
 
-        print(
-            "[VectorStore] Connected to Qdrant Cloud."
-        )
+            self.client = QdrantClient(
+                url=self.url,
+                api_key=self.api_key,
+                cloud_inference=True,
+            )
 
-        self._ensure_collection()
+            print(
+                "[VectorStore] Connected to Qdrant Cloud."
+            )
+
+            self._ensure_collection()
+
+        except Exception as e:
+
+            raise RuntimeError(
+                "[VectorStore] Qdrant initialization failed: "
+                f"{e}"
+            ) from e
 
     # ============================================================
     # COLLECTION
@@ -64,29 +89,45 @@ class VectorStore:
 
         try:
 
-            if not self.client.collection_exists(
-                self.collection_name
-            ):
+            exists = (
+                self.client.collection_exists(
+                    self.collection_name
+                )
+            )
+
+            if not exists:
 
                 print(
                     "[VectorStore] Creating collection:",
-                    self.collection_name,
+                    self.collection_name
                 )
 
                 self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=self.VECTOR_SIZE,
-                        distance=models.Distance.COSINE,
+
+                    collection_name=(
+                        self.collection_name
                     ),
+
+                    vectors_config=(
+                        models.VectorParams(
+
+                            size=self.DIMENSION,
+
+                            distance=(
+                                models.Distance.COSINE
+                            )
+                        )
+                    )
                 )
 
             else:
 
                 print(
                     "[VectorStore] Collection exists:",
-                    self.collection_name,
+                    self.collection_name
                 )
+
+            self._ensure_payload_indexes()
 
         except Exception as e:
 
@@ -96,156 +137,386 @@ class VectorStore:
             ) from e
 
     # ============================================================
+    # PAYLOAD INDEXES
+    # ============================================================
+
+    def _ensure_payload_indexes(self):
+
+        indexes = [
+            (
+                "doc_id",
+                models.PayloadSchemaType.INTEGER,
+            ),
+            (
+                "user_id",
+                models.PayloadSchemaType.INTEGER,
+            ),
+            (
+                "pdf_name",
+                models.PayloadSchemaType.KEYWORD,
+            ),
+            (
+                "page",
+                models.PayloadSchemaType.INTEGER,
+            ),
+        ]
+
+        for field_name, schema in indexes:
+
+            try:
+
+                self.client.create_payload_index(
+                    collection_name=(
+                        self.collection_name
+                    ),
+                    field_name=field_name,
+                    field_schema=schema,
+                )
+
+            except Exception as e:
+
+                # Index may already exist.
+                message = str(e).lower()
+
+                if (
+                    "already exists" not in message
+                    and "already exist" not in message
+                ):
+                    print(
+                        "[VectorStore] "
+                        f"Payload index warning for {field_name}:",
+                        e
+                    )
+
+    # ============================================================
     # POINT ID
     # ============================================================
 
-    def _make_point_id(self, chunk_id):
+    def _point_id(
+        self,
+        chunk: Dict[str, Any],
+    ) -> str:
 
-        return hashlib.md5(
-            str(chunk_id).encode("utf-8")
-        ).hexdigest()
+        raw = (
+            f"{self.collection_name}:"
+            f"{chunk.get('chunk_id', '')}:"
+            f"{chunk.get('doc_id', '')}:"
+            f"{chunk.get('page', '')}"
+        )
+
+        return str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                raw,
+            )
+        )
 
     # ============================================================
     # ADD CHUNKS
     # ============================================================
 
-    def add_chunks(self, embedded_chunks):
+    def add_chunks(
+        self,
+        chunks: List[Dict[str, Any]],
+        batch_size: int = 32,
+    ) -> int:
 
-        if not embedded_chunks:
-            return
+        if not chunks:
+            return 0
 
         points = []
 
-        for chunk in embedded_chunks:
+        for chunk in chunks:
 
-            chunk_id = chunk.get("chunk_id")
+            if not isinstance(chunk, dict):
+                continue
 
             text = str(
                 chunk.get("text") or ""
             ).strip()
 
-            if not chunk_id or not text:
+            if not text:
                 continue
 
+            doc_id = chunk.get(
+                "doc_id",
+                0,
+            )
+
             try:
-
-                doc_id = int(
-                    chunk.get("doc_id", 0)
-                )
-
+                doc_id = int(doc_id)
             except (
                 TypeError,
                 ValueError,
             ):
-
                 doc_id = 0
 
+            page = chunk.get(
+                "page",
+                0,
+            )
+
             try:
-
-                page = int(
-                    chunk.get("page", 0)
-                )
-
+                page = int(page)
             except (
                 TypeError,
                 ValueError,
             ):
-
                 page = 0
+
+            user_id = chunk.get(
+                "user_id",
+                0,
+            )
+
+            try:
+                user_id = int(user_id)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                user_id = 0
 
             pdf_name = str(
                 chunk.get(
                     "pdf_name",
                     "",
+                ) or ""
+            )
+
+            chunk_id = str(
+                chunk.get(
+                    "chunk_id",
+                    "",
                 )
-                or ""
             )
 
             payload = {
+
                 "text": text,
-                "pdf_name": pdf_name,
+
+                "user_id": user_id,
+
                 "doc_id": doc_id,
+
+                "pdf_name": pdf_name,
+
                 "page": page,
+
+                "chunk_id": chunk_id,
             }
 
-            point = models.PointStruct(
+            points.append(
+                models.PointStruct(
 
-                id=self._make_point_id(
-                    chunk_id
-                ),
+                    id=self._point_id(
+                        chunk
+                    ),
 
-                vector=models.Document(
-                    text=text,
-                    model=self.EMBEDDING_MODEL,
-                ),
+                    vector=models.Document(
+                        text=text,
+                        model=self.MODEL_NAME,
+                    ),
 
-                payload=payload,
+                    payload=payload,
+                )
             )
-
-            points.append(point)
 
         if not points:
-            print(
-                "[VectorStore] No valid chunks."
-            )
-            return
+
+            return 0
 
         print(
-            "[VectorStore] Uploading",
-            len(points),
-            "chunks..."
+            "[VectorStore] Uploading "
+            f"{len(points)} chunks..."
         )
 
         try:
 
             self.client.upload_points(
-                collection_name=self.collection_name,
+
+                collection_name=(
+                    self.collection_name
+                ),
+
                 points=points,
+
+                batch_size=batch_size,
+
+                wait=True,
             )
 
             print(
                 "[VectorStore] Upload successful:",
-                len(points),
+                len(points)
             )
+
+            return len(points)
 
         except Exception as e:
 
-            print(
-                "[VectorStore] Upload failed:",
-                e,
+            raise RuntimeError(
+                "[VectorStore] Upload failed: "
+                f"{e}"
+            ) from e
+
+    # ============================================================
+    # SEARCH
+    # ============================================================
+
+    def search(
+        self,
+        question: str,
+        top_k: int = 5,
+        where: Optional[dict] = None,
+    ) -> Dict[str, Any]:
+
+        if not question or not question.strip():
+
+            return {
+                "ids": [[]],
+                "documents": [[]],
+                "distances": [[]],
+                "metadatas": [[]],
+            }
+
+        query_filter = (
+            self._build_filter(where)
+            if where
+            else None
+        )
+
+        print(
+            "[VectorStore] Search:",
+            self.collection_name
+        )
+
+        print(
+            "[VectorStore] Filter:",
+            where
+        )
+
+        try:
+
+            result = self.client.query_points(
+
+                collection_name=(
+                    self.collection_name
+                ),
+
+                query=models.Document(
+                    text=question.strip(),
+                    model=self.MODEL_NAME,
+                ),
+
+                limit=int(top_k),
+
+                query_filter=query_filter,
+
+                with_payload=True,
             )
 
-            raise
+            points = (
+                result.points
+                if result
+                else []
+            )
+
+            ids = []
+            documents = []
+            distances = []
+            metadatas = []
+
+            for point in points:
+
+                ids.append(
+                    str(point.id)
+                )
+
+                payload = (
+                    point.payload
+                    or {}
+                )
+
+                documents.append(
+                    str(
+                        payload.get(
+                            "text",
+                            ""
+                        )
+                    )
+                )
+
+                distances.append(
+                    float(
+                        point.score
+                    )
+                )
+
+                metadatas.append(
+                    payload
+                )
+
+            print(
+                "[VectorStore] Results:",
+                len(points)
+            )
+
+            return {
+
+                "ids": [ids],
+
+                "documents": [
+                    documents
+                ],
+
+                "distances": [
+                    distances
+                ],
+
+                "metadatas": [
+                    metadatas
+                ],
+            }
+
+        except Exception as e:
+
+            raise RuntimeError(
+                "[VectorStore] Search failed: "
+                f"{e}"
+            ) from e
 
     # ============================================================
-    # FILTER
+    # FILTER CONVERTER
     # ============================================================
 
-    def _build_filter(self, where=None):
+    def _build_filter(
+        self,
+        where: dict,
+    ):
 
-        if not where:
-            return None
-
-        conditions = []
+        must = []
 
         for key, value in where.items():
 
             if value is None:
                 continue
 
-            if key == "doc_id":
+            if key in {
+                "doc_id",
+                "user_id",
+                "page",
+            }:
 
                 try:
                     value = int(value)
-
                 except (
                     TypeError,
                     ValueError,
                 ):
-
                     continue
 
-            conditions.append(
+            must.append(
                 models.FieldCondition(
                     key=key,
                     match=models.MatchValue(
@@ -254,167 +525,115 @@ class VectorStore:
                 )
             )
 
-        if not conditions:
+        if not must:
             return None
 
         return models.Filter(
-            must=conditions
+            must=must
         )
 
     # ============================================================
-    # SEARCH
+    # VERIFY DOCUMENT
     # ============================================================
 
-    def search(
+    def count_by_doc_id(
         self,
-        embedding,
-        top_k=5,
-        where=None,
-    ):
-
-        if not embedding:
-            return self._empty_result()
-
-        query_text = str(
-            embedding
-        ).strip()
-
-        if not query_text:
-            return self._empty_result()
-
-        query_filter = (
-            self._build_filter(where)
-        )
+        doc_id: int,
+    ) -> int:
 
         try:
 
-            response = self.client.query_points(
+            result = self.client.count(
 
-                collection_name=self.collection_name,
-
-                query=models.Document(
-                    text=query_text,
-                    model=self.EMBEDDING_MODEL,
+                collection_name=(
+                    self.collection_name
                 ),
 
-                query_filter=query_filter,
-
-                limit=max(
-                    1,
-                    min(
-                        int(top_k),
-                        20,
-                    ),
+                count_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="doc_id",
+                            match=models.MatchValue(
+                                value=int(doc_id)
+                            ),
+                        )
+                    ]
                 ),
 
-                with_payload=True,
+                exact=True,
             )
 
-            return self._normalize_results(
-                response
+            return int(
+                result.count
             )
 
         except Exception as e:
 
-            print(
-                "[VectorStore] Search error:",
-                e,
-            )
-
-            return self._empty_result()
+            raise RuntimeError(
+                "[VectorStore] Document count failed: "
+                f"{e}"
+            ) from e
 
     # ============================================================
-    # SEARCH BY DOCUMENT ID
+    # DELETE BY DOC ID
     # ============================================================
 
-    def search_by_doc_id(
+    def delete_by_doc_id(
         self,
-        embedding,
-        doc_id,
-        top_k=5,
+        doc_id: int,
     ):
 
-        if doc_id is None:
-            return self._empty_result()
+        self.client.delete(
 
-        try:
+            collection_name=(
+                self.collection_name
+            ),
 
-            doc_id = int(doc_id)
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
-            return self._empty_result()
-
-        return self.search(
-            embedding=embedding,
-            top_k=top_k,
-            where={
-                "doc_id": doc_id
-            },
-        )
-
-    # ============================================================
-    # DELETE BY DOCUMENT ID
-    # ============================================================
-
-    def delete_by_doc_id(self, doc_id):
-
-        if doc_id is None:
-            return
-
-        try:
-
-            doc_id = int(doc_id)
-
-            self.client.delete(
-
-                collection_name=self.collection_name,
-
-                points_selector=models.FilterSelector(
+            points_selector=(
+                models.FilterSelector(
                     filter=models.Filter(
                         must=[
                             models.FieldCondition(
                                 key="doc_id",
                                 match=models.MatchValue(
-                                    value=doc_id
+                                    value=int(
+                                        doc_id
+                                    )
                                 ),
                             )
                         ]
                     )
-                ),
-            )
+                )
+            ),
 
-            print(
-                "[VectorStore] Deleted doc_id:",
-                doc_id,
-            )
+            wait=True,
+        )
 
-        except Exception as e:
-
-            print(
-                "[VectorStore] Delete error:",
-                e,
-            )
+        print(
+            "[VectorStore] Deleted doc_id:",
+            doc_id
+        )
 
     # ============================================================
     # DELETE BY PDF NAME
     # ============================================================
 
-    def delete_by_pdf_name(self, pdf_name):
+    def delete_by_pdf_name(
+        self,
+        pdf_name: str,
+    ):
 
         if not pdf_name:
             return
 
-        try:
+        self.client.delete(
 
-            self.client.delete(
+            collection_name=(
+                self.collection_name
+            ),
 
-                collection_name=self.collection_name,
-
-                points_selector=models.FilterSelector(
+            points_selector=(
+                models.FilterSelector(
                     filter=models.Filter(
                         must=[
                             models.FieldCondition(
@@ -425,116 +644,8 @@ class VectorStore:
                             )
                         ]
                     )
-                ),
-            )
+                )
+            ),
 
-            print(
-                "[VectorStore] Deleted PDF:",
-                pdf_name,
-            )
-
-        except Exception as e:
-
-            print(
-                "[VectorStore] PDF delete error:",
-                e,
-            )
-
-    # ============================================================
-    # NORMALIZE RESULTS
-    # ============================================================
-
-    def _normalize_results(self, response):
-
-        documents = []
-        distances = []
-        ids = []
-        metadatas = []
-
-        points = getattr(
-            response,
-            "points",
-            [],
+            wait=True,
         )
-
-        for point in points:
-
-            payload = (
-                getattr(
-                    point,
-                    "payload",
-                    None,
-                )
-                or {}
-            )
-
-            text = str(
-                payload.get(
-                    "text",
-                    "",
-                )
-                or ""
-            )
-
-            if not text:
-                continue
-
-            point_id = getattr(
-                point,
-                "id",
-                "",
-            )
-
-            score = getattr(
-                point,
-                "score",
-                0.0,
-            )
-
-            try:
-
-                distance = 1.0 - float(score)
-
-            except Exception:
-
-                distance = 999.0
-
-            documents.append(text)
-            distances.append(distance)
-            ids.append(str(point_id))
-
-            metadatas.append({
-                "pdf_name": payload.get(
-                    "pdf_name",
-                    "",
-                ),
-                "doc_id": payload.get(
-                    "doc_id",
-                    0,
-                ),
-                "page": payload.get(
-                    "page",
-                    0,
-                ),
-            })
-
-        return {
-            "ids": [ids],
-            "documents": [documents],
-            "distances": [distances],
-            "metadatas": [metadatas],
-        }
-
-    # ============================================================
-    # EMPTY RESULT
-    # ============================================================
-
-    @staticmethod
-    def _empty_result():
-
-        return {
-            "ids": [[]],
-            "documents": [[]],
-            "distances": [[]],
-            "metadatas": [[]],
-        }

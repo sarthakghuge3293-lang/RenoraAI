@@ -1360,6 +1360,9 @@ def api_chat():
             locked_doc_name=(
                 chat_session.active_doc_name
             ),
+            locked_doc_id=(
+                chat_session.active_doc_id
+            ),
             user_documents=user_documents,
         )
 
@@ -1483,8 +1486,8 @@ def api_chat():
 
             else:
 
-                chat_session.active_doc_id = None
-                chat_session.active_doc_name = None
+                # Keep selected PDF state while this question uses Renvora.
+                pass
 
         # ==================================================================
         # AUTO TITLE
@@ -1657,9 +1660,9 @@ def _process_document_background(
         ↓
         TextChunker
         ↓
-        Gemini retrieval_document embedding
+        Qdrant Cloud Inference embedding
         ↓
-        ChromaDB
+        Qdrant Cloud
         ↓
         UserDocument.status = ready
     """
@@ -1755,6 +1758,20 @@ def _process_document_background(
 
                 return
 
+            # Add ownership metadata before indexing.
+            for index, chunk in enumerate(chunks):
+                if not isinstance(chunk, dict):
+                    continue
+                chunk["user_id"] = int(user_id)
+                chunk["doc_id"] = int(doc_id)
+                chunk["pdf_name"] = filename
+                chunk.setdefault("chunk_id", f"{doc_id}-{index}")
+
+            print(
+                "[DocumentUpload] Extracted chunks:",
+                len(chunks),
+            )
+
             # ==============================================================
             # STEP 3 — EMBEDDINGS
             # ==============================================================
@@ -1798,7 +1815,7 @@ def _process_document_background(
                 return
 
             # ==============================================================
-            # STEP 4 — CHROMADB
+            # STEP 4 — QDRANT CLOUD
             # ==============================================================
 
             try:
@@ -1807,15 +1824,32 @@ def _process_document_background(
                     collection_name
                 )
 
-                vector_store.add_chunks(
+                uploaded_count = vector_store.add_chunks(
                     embedded
                 )
 
+                if uploaded_count != len(embedded):
+                    raise RuntimeError(
+                        f"Qdrant uploaded {uploaded_count}/{len(embedded)} chunks"
+                    )
+
+                indexed_count = vector_store.count_by_doc_id(
+                    int(doc_id)
+                )
+
+                if indexed_count < 1:
+                    raise RuntimeError(
+                        "Qdrant verification failed: no chunks indexed for doc_id"
+                    )
+
                 print(
-                    "[DocProcessor] "
-                    f"Stored {len(embedded)} chunks "
-                    f"in ChromaDB collection "
-                    f"'{collection_name}'"
+                    "[DocumentUpload] Uploaded vectors:",
+                    uploaded_count,
+                )
+
+                print(
+                    "[DocumentUpload] Verified vectors:",
+                    indexed_count,
                 )
 
             except Exception as e:
@@ -1825,7 +1859,7 @@ def _process_document_background(
                 _update_doc_status(
                     doc_id,
                     (
-                        "Failed: ChromaDB storage error — "
+                        "Failed: Qdrant storage error — "
                         f"{str(e)[:150]}"
                     ),
                 )
@@ -2052,7 +2086,7 @@ def api_upload_document():
         )
 
         collection_name = (
-            f"user_{user_id}"
+            f"user_{user_id}_local_v1"
         )
 
         # ==============================================================
@@ -2220,15 +2254,15 @@ def api_delete_document(doc_id):
             document.collection_name
         )
 
-        vector_store.delete_by_pdf_name(
-            document.file_name
+        vector_store.delete_by_doc_id(
+            document.id
         )
 
     except Exception as e:
 
         print(
             "[MobileAPI] "
-            f"ChromaDB delete error: {e}"
+            f"Qdrant Cloud delete error: {e}"
         )
 
     # ======================================================================
@@ -2342,7 +2376,7 @@ def api_rename_document(doc_id):
     # We only change original_name.
     #
     # file_name remains unchanged because it is used
-    # by the actual stored file and ChromaDB metadata.
+    # by the actual stored file and Qdrant Cloud metadata.
     #
     # This prevents existing embeddings from breaking.
 
