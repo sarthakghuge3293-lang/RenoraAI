@@ -19,3 +19,25 @@ __pycache__/
 # OS generated files
 .DS_Store
 Thumbs.db
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+database/chroma/
+database/chroma/**
+uploads/
+uploads/**
+*.db
+*.sqlite
+*.sqlite3
+
+.pytest_cache/
+.mypy_cache/
+
+.env
+.env.*
+!.env.example
+
+migrate_company_to_qdrant.py
+test_company_search.py
