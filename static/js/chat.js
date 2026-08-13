@@ -599,8 +599,7 @@ function speakNextVoiceSentence() {
     speech.pitch = 1.0;
     speech.volume = 1.0;
 
-    const voices =
-        window.speechSynthesis.getVoices();
+    const voices = window.speechSynthesis ? window.speechSynthesis ? window.speechSynthesis.getVoices() : [] : [];
 
     const selectedVoice =
         findVoiceForLanguage(
@@ -2253,7 +2252,7 @@ function speakMessage(
 
     const voice =
         findBestBrowserVoice(
-            window.speechSynthesis.getVoices(),
+            window.speechSynthesis ? window.speechSynthesis ? window.speechSynthesis.getVoices() : [] : [],
             selectedVoiceLanguage
         );
 
@@ -3007,8 +3006,7 @@ function initInlineVoice() {
 
         const voice =
             findBestBrowserVoice(
-                window.speechSynthesis
-                    .getVoices(),
+                window.speechSynthesis?.getVoices() || [],
                 selectedVoiceLanguage
             );
 
@@ -3168,11 +3166,10 @@ function initInlineVoice() {
     // ---------------------------------------------------------
 
     function stopVoiceSpeaking() {
-
         if (window.RenvoraTTS) {
             window.RenvoraTTS.postMessage("STOP");
         } else if (
-            "speechSynthesis" in window
+            window.speechSynthesis
         ) {
             window.speechSynthesis.cancel();
         }
