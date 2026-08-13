@@ -1814,6 +1814,11 @@ function sendMessage() {
                 data.source_used
             );
 
+            // Automatically speak if inside Android APK
+            if (window.RenvoraTTS) {
+                speakMessage(reply, null);
+            }
+
             if (
                 data.session_id &&
                 currentSessionId === null
