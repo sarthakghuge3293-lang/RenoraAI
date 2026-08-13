@@ -667,9 +667,11 @@ function speakNextVoiceSentence() {
             );
         };
 
-    window.speechSynthesis.speak(
-        speech
-    );
+    if (window.RenvoraTTS) {
+        window.RenvoraTTS.postMessage(speech.text);
+    } else {
+        window.speechSynthesis.speak(speech);
+    }
 }
 
 // ============================================================
@@ -2281,9 +2283,11 @@ function speakMessage(
         }
     };
 
-    window.speechSynthesis.speak(
-        speech
-    );
+    if (window.RenvoraTTS) {
+        window.RenvoraTTS.postMessage(speech.text);
+    } else {
+        window.speechSynthesis.speak(speech);
+    }
 }
 
 // =============================================================
@@ -3060,9 +3064,11 @@ function initInlineVoice() {
                 setVoiceReady();
             };
 
-        window.speechSynthesis.speak(
-            speech
-        );
+        if (window.RenvoraTTS) {
+            window.RenvoraTTS.postMessage(speech.text);
+        } else {
+            window.speechSynthesis.speak(speech);
+        }
     }
 
     // ---------------------------------------------------------
