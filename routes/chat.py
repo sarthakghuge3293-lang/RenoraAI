@@ -125,6 +125,12 @@ def chat_page():
         "chat.html"
     )
 
+@chat.route("/voice")
+def voice_page():
+    if "user_id" not in session:
+        return redirect("/login")
+
+    return render_template("voice.html")
 
 # ============================================================
 # AI CHAT API

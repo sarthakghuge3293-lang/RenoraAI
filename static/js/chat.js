@@ -1,13 +1,9 @@
-// ==============================
-// ELEMENTS
-// ==============================
-
 const input = document.getElementById("messageInput");
 const sendBtn = document.getElementById("sendBtn");
 const chatBody = document.getElementById("chatBody");
 const newChatBtn = document.querySelector(".new-chat-btn");
-const chatVoiceBtn =
-    document.getElementById("chatVoiceBtn");
+
+const chatVoiceBtn = document.getElementById("chatVoiceBtn");
 
 const inlineVoiceArea =
     document.getElementById("inlineVoiceArea");
@@ -23,15 +19,14 @@ const inlineVoiceHint =
 
 const closeInlineVoiceBtn =
     document.getElementById("closeInlineVoiceBtn");
+
 // Voice mode elements
-const chatVoiceBtn = document.getElementById("chatVoiceBtn");
 const voiceMode = document.getElementById("voiceMode");
 const voiceCloseBtn = document.getElementById("voiceCloseBtn");
 const voiceStopBtn = document.getElementById("voiceStopBtn");
 const chatVoiceOrb = document.getElementById("chatVoiceOrb");
 const chatVoiceStatus = document.getElementById("chatVoiceStatus");
 const chatVoiceHint = document.getElementById("chatVoiceHint");
-
 // Modal Elements
 const uploadModal = document.getElementById("uploadModal");
 const openUploadModalBtn = document.getElementById("openUploadModalBtn");
@@ -300,31 +295,6 @@ function openInlineVoice() {
 // START RECOGNITION
 // ============================================================
 
-function startVoiceRecognition() {
-
-    if (
-        !voiceRecognition ||
-        voiceListening ||
-        voiceProcessing
-    ) {
-        return;
-    }
-
-    voiceRecognition.lang =
-        selectedVoiceLanguage;
-
-    try {
-
-        voiceRecognition.start();
-
-    } catch (error) {
-
-        console.warn(
-            "[Voice] Start error:",
-            error
-        );
-    }
-}
 
 // ============================================================
 // CLOSE VOICE
@@ -902,7 +872,8 @@ function findVoiceForLanguage(
 // START INLINE VOICE
 // ============================================================
 
-initInlineVoice();
+// initInlineVoice handled by inline-voice.js
+
 // ==============================
 // DOM READY
 // ==============================
@@ -910,7 +881,6 @@ initInlineVoice();
 document.addEventListener("DOMContentLoaded", () => {
     fetchUserDocuments();
     fetchChatSessions();
-    initInlineVoice();
 });
 
 // ==============================
@@ -1788,7 +1758,6 @@ function sendMessage() {
         return;
     }
 
-    stopVoiceSpeaking();
 
     const welcome =
         document.querySelector(
@@ -3465,3 +3434,57 @@ if (
             );
         };
 }
+// ===============================
+// MOBILE SIDEBAR MENU
+// ===============================
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const mobileMenuBtn = document.getElementById("mobileMenuBtn");
+    const sidebar = document.getElementById("sidebar");
+    const sidebarOverlay = document.getElementById("sidebarOverlay");
+
+    if (!mobileMenuBtn || !sidebar) {
+        console.warn("Mobile menu elements not found");
+        return;
+    }
+
+    // Open / close sidebar
+    mobileMenuBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        sidebar.classList.toggle("active");
+
+        if (sidebarOverlay) {
+            sidebarOverlay.classList.toggle("active");
+        }
+    });
+
+    // Close when overlay is clicked
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener("click", function () {
+            sidebar.classList.remove("active");
+            sidebarOverlay.classList.remove("active");
+        });
+    }
+
+    // Close sidebar when a sidebar link/item is clicked on mobile
+    sidebar.addEventListener("click", function (e) {
+
+        if (window.innerWidth <= 768) {
+
+            const target = e.target.closest("a, .chat-item");
+
+            if (target && !target.classList.contains("new-chat-btn")) {
+                sidebar.classList.remove("active");
+
+                if (sidebarOverlay) {
+                    sidebarOverlay.classList.remove("active");
+                }
+            }
+        }
+
+    });
+
+});
