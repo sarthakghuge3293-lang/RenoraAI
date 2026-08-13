@@ -3158,7 +3158,9 @@ function initInlineVoice() {
 
     function stopVoiceSpeaking() {
 
-        if (
+        if (window.RenvoraTTS) {
+            window.RenvoraTTS.postMessage("STOP");
+        } else if (
             "speechSynthesis" in window
         ) {
             window.speechSynthesis.cancel();
