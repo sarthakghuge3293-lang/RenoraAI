@@ -3360,58 +3360,6 @@ function escapeHtml(
         );
 }
 
-// ==============================
-// MOBILE SIDEBAR
-// ==============================
-
-const mobileMenuBtn =
-    document.getElementById(
-        "mobileMenuBtn"
-    );
-
-const sidebar =
-    document.getElementById(
-        "sidebar"
-    );
-
-const sidebarOverlay =
-    document.getElementById(
-        "sidebarOverlay"
-    );
-
-if (mobileMenuBtn) {
-
-    mobileMenuBtn.addEventListener(
-        "click",
-        () => {
-
-            sidebar.classList.add(
-                "active"
-            );
-
-            sidebarOverlay.classList.add(
-                "active"
-            );
-        }
-    );
-}
-
-if (sidebarOverlay) {
-
-    sidebarOverlay.addEventListener(
-        "click",
-        () => {
-
-            sidebar.classList.remove(
-                "active"
-            );
-
-            sidebarOverlay.classList.remove(
-                "active"
-            );
-        }
-    );
-}
 
 // =============================================================
 // LOAD BROWSER VOICES
@@ -3449,26 +3397,8 @@ document.addEventListener("DOMContentLoaded", function () {
         return;
     }
 
-    // Open / close sidebar
-    mobileMenuBtn.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        sidebar.classList.toggle("active");
-
-        if (sidebarOverlay) {
-            sidebarOverlay.classList.toggle("active");
-        }
-    });
-
-    // Close when overlay is clicked
-    if (sidebarOverlay) {
-        sidebarOverlay.addEventListener("click", function () {
-            sidebar.classList.remove("active");
-            sidebarOverlay.classList.remove("active");
-        });
-    }
-
+    // Note: The open/close and overlay click handlers are intentionally omitted here 
+    // because they are already handled by inline onclick handlers in chat.html.
     // Close sidebar when a sidebar link/item is clicked on mobile
     sidebar.addEventListener("click", function (e) {
 
